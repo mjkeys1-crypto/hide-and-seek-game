@@ -941,8 +941,8 @@ function activateVisionCone() {
 
     // Dim all wall materials outside cone (they'll be lit by spotlight when in view)
     wallMeshes.forEach(mesh => {
-        if (mesh.material) {
-            mesh.userData.originalEmissive = mesh.material.emissive ? mesh.material.emissive.clone() : new THREE.Color(0x000000);
+        if (mesh.material && mesh.material.emissive !== undefined) {
+            mesh.userData.originalEmissive = mesh.material.emissive.clone();
             mesh.userData.originalEmissiveIntensity = mesh.material.emissiveIntensity || 0;
             // Add slight emissive so walls are visible but dim outside cone
             mesh.material.emissive = new THREE.Color(0x222233);
@@ -951,7 +951,7 @@ function activateVisionCone() {
     });
 
     // Dim floor
-    if (floorMesh && floorMesh.material) {
+    if (floorMesh && floorMesh.material && floorMesh.material.emissive !== undefined) {
         floorMesh.userData.originalColor = floorMesh.material.color.clone();
         floorMesh.material.emissive = new THREE.Color(0x111122);
         floorMesh.material.emissiveIntensity = 0.2;
@@ -995,7 +995,7 @@ function deactivateVisionCone() {
     });
 
     // Restore floor
-    if (floorMesh && floorMesh.material && floorMesh.userData.originalColor) {
+    if (floorMesh && floorMesh.material && floorMesh.material.emissive !== undefined && floorMesh.userData.originalColor) {
         floorMesh.material.emissive = new THREE.Color(0x000000);
         floorMesh.material.emissiveIntensity = 0;
     }
@@ -1128,7 +1128,7 @@ function loadSeekerCelebrateModel() {
 
 function loadHiderModel() {
     const loader = new THREE.GLTFLoader();
-    loader.load('images/Characters/Meshy_AI_biped/Meshy_AI_Meshy_Merged_Animations - kid 3.glb',
+    loader.load('images/Characters/Meshy_AI_biped/kid 5 - run.glb',
         (gltf) => {
             hiderModel = gltf.scene;
             hiderModel.scale.set(5, 5, 5);
@@ -1160,7 +1160,7 @@ function loadHiderModel() {
 
 function loadHiderCelebrateModel() {
     const loader = new THREE.GLTFLoader();
-    const modelPath = 'images/Characters/Meshy_AI_biped/kid 3 - celebrate.glb';
+    const modelPath = 'images/Characters/Meshy_AI_biped/kid 5 - dance.glb';
     console.log('Loading hider celebrate model from:', modelPath);
     loader.load(modelPath,
         (gltf) => {
@@ -2585,13 +2585,16 @@ function createPlayers() {
         playerMixer = new THREE.AnimationMixer(playerMesh);
         if (myAnimations && myAnimations.length > 0) {
             console.log('Setting up player animation:', myAnimations[0].name, 'duration:', myAnimations[0].duration);
-            const action = playerMixer.clipAction(myAnimations[0]);
+            // Clone the animation clip to ensure it binds correctly to the cloned mesh
+            const clonedClip = myAnimations[0].clone();
+            const action = playerMixer.clipAction(clonedClip);
             action.setLoop(THREE.LoopRepeat, Infinity);
             action.clampWhenFinished = false;
-            action.timeScale = 1.0;
+            action.timeScale = 1.5; // Slightly faster animation
             action.play();
-            action.paused = false; // Start playing immediately to test
+            action.paused = false;
             playerMesh.userData.walkAction = action;
+            playerMesh.userData.mixer = playerMixer; // Store reference
             console.log('Player animation action created, playing:', action.isRunning());
         } else {
             console.log('NO ANIMATIONS for player!');
@@ -2627,13 +2630,16 @@ function createPlayers() {
         });
         opponentMixer = new THREE.AnimationMixer(opponentMesh);
         if (oppAnimations && oppAnimations.length > 0) {
-            const action = opponentMixer.clipAction(oppAnimations[0]);
+            // Clone the animation clip to ensure it binds correctly to the cloned mesh
+            const clonedClip = oppAnimations[0].clone();
+            const action = opponentMixer.clipAction(clonedClip);
             action.setLoop(THREE.LoopRepeat, Infinity);
             action.clampWhenFinished = false;
-            action.timeScale = 1.0;
+            action.timeScale = 1.5; // Slightly faster animation
             action.play();
             action.paused = true;
             opponentMesh.userData.walkAction = action;
+            opponentMesh.userData.mixer = opponentMixer; // Store reference
         }
     } else {
         const geometry = new THREE.CapsuleGeometry(CONFIG.PLAYER_RADIUS * 0.7, CONFIG.PLAYER_RADIUS, 8, 16);
@@ -2740,26 +2746,31 @@ const screens = {
     result: document.getElementById('result-screen')
 };
 
-const elements = {
-    soloBtn: document.getElementById('solo-btn'),
-    createBtn: document.getElementById('create-btn'),
-    joinBtn: document.getElementById('join-btn'),
-    joinCode: document.getElementById('join-code'),
-    cancelBtn: document.getElementById('cancel-btn'),
-    copyCode: document.getElementById('copy-code'),
-    roomCode: document.getElementById('room-code'),
-    connectionStatus: document.getElementById('connection-status'),
-    roleDisplay: document.getElementById('role-display'),
-    timerDisplay: document.getElementById('timer-display'),
-    abilityDisplay: document.getElementById('ability-display'),
-    abilityFill: document.getElementById('ability-fill'),
-    abilityText: document.getElementById('ability-text'),
-    resultTitle: document.getElementById('result-title'),
-    resultMessage: document.getElementById('result-message'),
-    playAgainBtn: document.getElementById('play-again-btn'),
-    menuBtn: document.getElementById('menu-btn'),
-    homeBtn: document.getElementById('home-btn')
-};
+let elements = null;
+
+function initElements() {
+    elements = {
+        soloBtn: document.getElementById('solo-btn'),
+        createBtn: document.getElementById('create-btn'),
+        joinBtn: document.getElementById('join-btn'),
+        joinCode: document.getElementById('join-code'),
+        cancelBtn: document.getElementById('cancel-btn'),
+        copyCode: document.getElementById('copy-code'),
+        roomCode: document.getElementById('room-code'),
+        connectionStatus: document.getElementById('connection-status'),
+        roleDisplay: document.getElementById('role-display'),
+        timerDisplay: document.getElementById('timer-display'),
+        abilityDisplay: document.getElementById('ability-display'),
+        abilityFill: document.getElementById('ability-fill'),
+        abilityText: document.getElementById('ability-text'),
+        resultTitle: document.getElementById('result-title'),
+        resultMessage: document.getElementById('result-message'),
+        playAgainBtn: document.getElementById('play-again-btn'),
+        menuBtn: document.getElementById('menu-btn'),
+        homeBtn: document.getElementById('home-btn')
+    };
+    console.log('Elements initialized:', elements.createBtn ? 'OK' : 'FAILED');
+}
 
 // ==========================================
 // Screen Management
@@ -2789,8 +2800,16 @@ function generateRoomCode() {
     return code;
 }
 
+// Try multiple PeerJS servers
+const PEER_SERVERS = [
+    { host: '0.peerjs.com', port: 443, secure: true, path: '/' },
+    { host: 'peerjs.92k.de', port: 443, secure: true, path: '/' }
+];
+let currentServerIndex = 0;
+
 const PEER_CONFIG = {
-    debug: 2,
+    debug: 1,
+    ...PEER_SERVERS[currentServerIndex],
     config: {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
@@ -2799,35 +2818,101 @@ const PEER_CONFIG = {
     }
 };
 
+let createGameRetries = 0;
+const MAX_RETRIES = 2;
+
 function createGame() {
     state.roomCode = generateRoomCode();
     state.isHost = true;
-    setStatus('Creating game...');
 
-    if (state.peer) state.peer.destroy();
+    const serverInfo = PEER_SERVERS[currentServerIndex];
+    setStatus('Connecting to ' + serverInfo.host + '...');
 
-    state.peer = new Peer('hideseek3d-' + state.roomCode, PEER_CONFIG);
+    if (state.peer) {
+        try { state.peer.destroy(); } catch(e) {}
+    }
+
+    console.log('Creating peer with ID: hideseek3d-' + state.roomCode + ' on server: ' + serverInfo.host);
+
+    const peerConfig = {
+        debug: 1,
+        ...serverInfo,
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        }
+    };
+
+    try {
+        state.peer = new Peer('hideseek3d-' + state.roomCode, peerConfig);
+    } catch (e) {
+        console.error('Failed to create Peer:', e);
+        tryNextServer();
+        return;
+    }
+
+    // Timeout if connection takes too long
+    const connectionTimeout = setTimeout(() => {
+        console.log('Connection timeout, trying next server...');
+        if (state.peer) state.peer.destroy();
+        tryNextServer();
+    }, 5000);
 
     state.peer.on('open', (id) => {
+        clearTimeout(connectionTimeout);
+        console.log('Peer connected with ID:', id);
+        createGameRetries = 0;
+        currentServerIndex = 0;
         elements.roomCode.textContent = state.roomCode;
         showScreen('waiting');
+        setStatus('Waiting for opponent... Code: ' + state.roomCode);
     });
 
     state.peer.on('connection', (conn) => {
+        clearTimeout(connectionTimeout);
+        console.log('Incoming connection');
         state.conn = conn;
         if (conn.open) setupConnection();
         else conn.on('open', () => setupConnection());
     });
 
     state.peer.on('error', (err) => {
+        clearTimeout(connectionTimeout);
+        console.error('Peer error:', err.type, err);
         if (err.type === 'unavailable-id') {
             state.peer.destroy();
             setTimeout(createGame, 500);
         } else {
-            setStatus('Connection error: ' + err.type, 'error');
-            showScreen('menu');
+            tryNextServer();
         }
     });
+
+    state.peer.on('disconnected', () => {
+        console.log('Peer disconnected, attempting reconnect...');
+        if (state.peer && !state.peer.destroyed) {
+            state.peer.reconnect();
+        }
+    });
+}
+
+function tryNextServer() {
+    createGameRetries++;
+    if (createGameRetries >= MAX_RETRIES) {
+        // Try next server
+        currentServerIndex = (currentServerIndex + 1) % PEER_SERVERS.length;
+        createGameRetries = 0;
+
+        if (currentServerIndex === 0) {
+            // We've tried all servers
+            setStatus('All servers unavailable. Try again later.', 'error');
+            showScreen('menu');
+            return;
+        }
+    }
+    setStatus('Retrying... (' + (createGameRetries + 1) + '/' + MAX_RETRIES + ')');
+    setTimeout(createGame, 1500);
 }
 
 function joinGame() {
@@ -3134,8 +3219,8 @@ function startVictoryCelebration(title, message, isWinner) {
     if (isWinner && state.role === 'seeker' && seekerCelebrateModel) {
         celebrateMesh = THREE.SkeletonUtils.clone(seekerCelebrateModel);
         celebrateMesh.position.set(winnerX, 0, winnerZ);
-        // Face the camera (camera is at +Z from character)
-        celebrateMesh.rotation.y = 0;
+        // Face the camera (rotate -90 degrees to face front toward camera)
+        celebrateMesh.rotation.y = -Math.PI / 2;
         scene.add(celebrateMesh);
 
         if (playerMesh) playerMesh.visible = false;
@@ -3154,8 +3239,8 @@ function startVictoryCelebration(title, message, isWinner) {
         if (hiderCelebrateModel) {
             celebrateMesh = THREE.SkeletonUtils.clone(hiderCelebrateModel);
             celebrateMesh.position.set(winnerX, 0, winnerZ);
-            // Face the camera (camera is at +Z from character)
-            celebrateMesh.rotation.y = 0;
+            // Face the camera (rotate -90 degrees to face front toward camera)
+            celebrateMesh.rotation.y = -Math.PI / 2;
             scene.add(celebrateMesh);
 
             if (playerMesh) playerMesh.visible = false;
@@ -4085,14 +4170,18 @@ function updateScene() {
         if (playerMesh.userData.walkAction) {
             if (isMoving || state.player.boosting) {
                 playerMesh.userData.walkAction.paused = false;
+                playerMesh.userData.walkAction.enabled = true;
             } else {
                 playerMesh.userData.walkAction.paused = true;
             }
         }
 
-        // Update animation mixer
-        if (playerMixer) {
-            playerMixer.update(delta);
+        // Update animation mixer - use stored mixer or global
+        const mixer = playerMesh.userData.mixer || playerMixer;
+        if (mixer) {
+            // Ensure delta is reasonable (cap at 0.1 to prevent jumps)
+            const safeDelta = Math.min(delta, 0.1);
+            mixer.update(safeDelta > 0 ? safeDelta : 0.016);
         }
     }
 
@@ -4273,6 +4362,7 @@ function startSoloGame() {
 }
 
 function init() {
+    initElements();
     initThreeJS();
 
     elements.soloBtn.addEventListener('click', startSoloGame);
