@@ -6,12 +6,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <title>Hide & Seek Online</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=38">
 </head>
 <body>
     <div id="menu-screen" class="screen active">
         <div class="logo">
-            <img src="images/Logo/logo 1.png" alt="Hide & Seek">
+            <img src="images/Logo/logo 4.png" alt="Hide & Seek">
         </div>
         <div id="character-preview"></div>
         <p class="subtitle">Two-Player Online Game</p>
@@ -25,6 +25,11 @@
         </div>
 
         <div id="connection-status" class="status"></div>
+
+        <div id="volume-control">
+            <span class="volume-icon">🔊</span>
+            <input type="range" id="volume-slider" min="0" max="100" value="50">
+        </div>
     </div>
 
     <div id="waiting-screen" class="screen">
@@ -42,15 +47,15 @@
             <button id="home-btn" class="btn small">HOME</button>
             <div id="role-display"></div>
             <div id="timer-display"></div>
-            <div id="ability-display">
-                <div id="ability-bar">
-                    <div id="ability-fill"></div>
-                </div>
-                <span id="ability-text">BOOST [SPACE]</span>
-            </div>
-            <div id="controls-hint">WASD or Arrow Keys to move</div>
         </div>
         <canvas id="game-canvas"></canvas>
+        <div id="ability-display">
+            <div id="ability-bar">
+                <div id="ability-fill"></div>
+            </div>
+            <span id="ability-text">BOOST [SPACE]</span>
+        </div>
+        <div id="controls-hint">WASD or Arrow Keys to move</div>
 
         <!-- Mobile Controls -->
         <div id="mobile-controls">
@@ -74,6 +79,6 @@
     <script src="https://unpkg.com/three@0.140.0/build/three.min.js"></script>
     <script src="https://unpkg.com/three@0.140.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://unpkg.com/three@0.140.0/examples/js/utils/SkeletonUtils.js"></script>
-    <script src="game3d.js?v=20"></script>
+    <script src="game3d.js?v=42"></script>
 </body>
 </html>
