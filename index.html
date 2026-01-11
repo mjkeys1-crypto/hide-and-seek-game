@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <title>Hide & Seek Online</title>
-    <link rel="stylesheet" href="styles.css?v=38">
+    <link rel="stylesheet" href="styles.css?v=41">
 </head>
 <body>
     <div id="menu-screen" class="screen active">
@@ -17,6 +17,20 @@
         <p class="subtitle">Two-Player Online Game</p>
 
         <div class="menu-options">
+            <select id="board-select" class="board-selector">
+                <option value="0">1. The Garden</option>
+                <option value="1">2. The Haunted Maze</option>
+                <option value="2">3. Neon Grid</option>
+                <option value="3">4. The Fortress</option>
+                <option value="4">5. The Spiral</option>
+                <option value="5">6. The Bunker</option>
+                <option value="6">7. The Ruins</option>
+                <option value="7">8. The Arena</option>
+                <option value="8">9. The Void</option>
+                <option value="9">10. The Streets</option>
+                <option value="10">11. The Park</option>
+                <option value="11">12. The Bathroom</option>
+            </select>
             <button id="solo-btn" class="btn primary">Play Solo</button>
             <div class="divider">or play online</div>
             <button id="create-btn" class="btn secondary">Create Game</button>
@@ -30,6 +44,8 @@
             <span class="volume-icon">🔊</span>
             <input type="range" id="volume-slider" min="0" max="100" value="50">
         </div>
+
+        <p class="footer-credit">Built by C&M Jacobs</p>
     </div>
 
     <div id="waiting-screen" class="screen">
@@ -47,7 +63,12 @@
             <button id="home-btn" class="btn small">HOME</button>
             <div id="role-display"></div>
             <div id="timer-display"></div>
+            <div id="coin-container">
+                <span id="coin-icon">&#x1FA99;</span>
+                <span id="coin-display">0</span>
+            </div>
         </div>
+        <div id="powerup-indicator"></div>
         <canvas id="game-canvas"></canvas>
         <div id="ability-display">
             <div id="ability-bar">
@@ -78,7 +99,8 @@
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://unpkg.com/three@0.140.0/build/three.min.js"></script>
     <script src="https://unpkg.com/three@0.140.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://unpkg.com/three@0.140.0/examples/js/loaders/DRACOLoader.js"></script>
     <script src="https://unpkg.com/three@0.140.0/examples/js/utils/SkeletonUtils.js"></script>
-    <script src="game3d.js?v=53"></script>
+    <script src="game3d.js?v=73"></script>
 </body>
 </html>

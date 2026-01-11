@@ -1,0 +1,17 @@
+# Local Netlify folder
+.netlify
+
+# Large model files (over 100MB)
+images/maze\ elements/Haunted/tree.glb
+images/maze\ elements/The\ Bunker/Meshy_AI_Military_Vehicle_0111193209_texture.glb
+
+# Uncompressed large models
+images/maze\ elements/fortress/*.glb
+images/maze\ elements/garden/*.glb
+images/maze\ elements/Haunted/*.glb
+images/maze\ elements/Park/*.glb
+images/maze\ elements/bathroom/*.glb
+images/maze\ elements/The\ Bunker/*.glb
+
+# Keep compressed models (smaller)
+!images/maze\ elements/compressed/

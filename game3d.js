@@ -382,6 +382,81 @@ const SoundManager = {
         gain.connect(this.masterGain);
         osc.start(now);
         osc.stop(now + 0.05);
+    },
+
+    // Coin collect sound - cheerful ding
+    playCoinCollect() {
+        if (!this.enabled || !this.audioContext) return;
+        this.resume();
+
+        const ctx = this.audioContext;
+        const now = ctx.currentTime;
+
+        // High pitched coin ding
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1200, now);
+        osc.frequency.exponentialRampToValueAtTime(1800, now + 0.1);
+
+        const osc2 = ctx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.value = 2400;
+
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+        osc.connect(gain);
+        osc2.connect(gain);
+        gain.connect(this.masterGain);
+
+        osc.start(now);
+        osc2.start(now);
+        osc.stop(now + 0.2);
+        osc2.stop(now + 0.15);
+    },
+
+    // Powerup collect sound - magical chime
+    playPowerupCollect() {
+        if (!this.enabled || !this.audioContext) return;
+        this.resume();
+
+        const ctx = this.audioContext;
+        const now = ctx.currentTime;
+
+        // Ascending magical notes
+        const notes = [523.25, 659.25, 783.99, 1046.50]; // C, E, G, C (octave)
+
+        notes.forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            osc.type = 'triangle';
+            osc.frequency.value = freq;
+
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0, now + i * 0.08);
+            gain.gain.linearRampToValueAtTime(0.2, now + i * 0.08 + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.08 + 0.25);
+
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(now + i * 0.08);
+            osc.stop(now + i * 0.08 + 0.25);
+        });
+
+        // Shimmer effect
+        const shimmer = ctx.createOscillator();
+        shimmer.type = 'sine';
+        shimmer.frequency.setValueAtTime(2000, now);
+        shimmer.frequency.exponentialRampToValueAtTime(3000, now + 0.4);
+
+        const shimmerGain = ctx.createGain();
+        shimmerGain.gain.setValueAtTime(0.1, now);
+        shimmerGain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+        shimmer.connect(shimmerGain);
+        shimmerGain.connect(this.masterGain);
+        shimmer.start(now);
+        shimmer.stop(now + 0.4);
     }
 };
 
@@ -415,7 +490,16 @@ const CONFIG = {
     SEEKER_VIEW_ANGLE: Math.PI / 2.5,
     GAME_DURATION: 90,
     CATCH_DISTANCE: 5,
-    WALL_HEIGHT: 4
+    WALL_HEIGHT: 4,
+    // Collectibles
+    COIN_COUNT: 3,
+    COIN_RADIUS: 0.8,
+    POWERUP_SPAWN_INTERVAL: 18000,
+    POWERUP_RADIUS: 1.2,
+    INVISIBILITY_DURATION: 3000,
+    SPEED_BOOST_DURATION: 4000,
+    FREEZE_DURATION: 2000,
+    COLLECTIBLE_PICKUP_DISTANCE: 3
 };
 
 // Board definitions with themes
@@ -665,23 +749,35 @@ const BOARDS = [
     {
         name: "The Bathroom",
         spawns: { seeker: { x: -25, z: 0 }, hider: { x: 25, z: 0 } },
-        style: { floor: 0xffffff, wall: 0xadd8e6, sky: 0xe6f3ff },
+        style: { floor: 0xd4cfc9, wall: 0x87ceeb, sky: 0xe6f3ff },
         theme: 'bathroom',
         walls: [
-            // THE GIANT TOILET (center piece - hilarious hiding spot!)
-            { x: -4, z: -4, w: 8, d: 10, type: 'toilet' },
-            // Bathtub (great hiding spot)
-            { x: -25, z: -20, w: 12, d: 6, type: 'bathtub' },
-            // Sink
-            { x: 18, z: -22, w: 6, d: 4, type: 'sink' },
-            // Towel racks
-            { x: 20, z: 0, w: 2, d: 8 },
-            { x: -22, z: 10, w: 8, d: 2 },
-            // Shower curtain (can hide behind!)
-            { x: 15, z: 15, w: 10, d: 1, type: 'curtain' },
-            // Toilet paper tower
-            { x: -20, z: 20, w: 3, d: 3, type: 'tproll' },
-            { x: 25, z: -8, w: 2, d: 2, type: 'tproll' }
+            // Toilet stalls row (left side)
+            { x: -30, z: -25, w: 6, d: 8, type: 'toilet' },
+            { x: -30, z: -12, w: 6, d: 8, type: 'toilet' },
+            { x: -30, z: 1, w: 6, d: 8, type: 'toilet' },
+            // Stall dividers
+            { x: -22, z: -20, w: 1, d: 28 },
+            // Row of sinks (right side)
+            { x: 25, z: -25, w: 5, d: 4, type: 'sink' },
+            { x: 25, z: -15, w: 5, d: 4, type: 'sink' },
+            { x: 25, z: -5, w: 5, d: 4, type: 'sink' },
+            // Mirror wall behind sinks (thin wall)
+            { x: 32, z: -15, w: 1, d: 30 },
+            // Bathtub / Shower area (back corner)
+            { x: -25, z: 20, w: 12, d: 8, type: 'bathtub' },
+            // Shower curtains
+            { x: -12, z: 18, w: 1, d: 12, type: 'curtain' },
+            { x: 10, z: 22, w: 12, d: 1, type: 'curtain' },
+            // Central island (counter with supplies)
+            { x: -5, z: -5, w: 10, d: 6 },
+            // Paper towel dispensers / Hand dryers
+            { x: 20, z: 8, w: 3, d: 3, type: 'tproll' },
+            { x: 15, z: 20, w: 2, d: 2, type: 'tproll' },
+            // Trash bin
+            { x: -15, z: -18, w: 3, d: 3 },
+            // Wet floor sign area
+            { x: 5, z: 12, w: 4, d: 4 }
         ]
     },
     {
@@ -721,6 +817,46 @@ let neonPulseTime = 0;
 let dustParticles = [];
 let playerGlow = null;
 let opponentGlow = null;
+
+// Setup DRACOLoader for compressed models
+const dracoLoader = new THREE.DRACOLoader();
+dracoLoader.setDecoderPath('https://unpkg.com/three@0.140.0/examples/js/libs/draco/');
+
+// Track 3D model collisions
+let modelColliders = [];
+
+// Helper function to load 3D models for board decorations
+function loadBoardModel(path, x, z, scale = 1, rotationY = 0, collisionRadius = null, yOffset = 0) {
+    const loader = new THREE.GLTFLoader();
+    loader.setDRACOLoader(dracoLoader);
+    loader.load(path, (gltf) => {
+        const model = gltf.scene;
+        model.position.set(x, yOffset, z);
+        model.scale.set(scale, scale, scale);
+        model.rotation.y = rotationY;
+        model.traverse((child) => {
+            if (child.isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+            }
+        });
+        scene.add(model);
+        themeParticles.push(model);
+
+        // Add collision for this model (circular collision)
+        const radius = collisionRadius || scale * 1.5; // Default collision radius based on scale
+        modelColliders.push({ x: x, z: z, radius: radius });
+
+        console.log('Loaded model:', path, 'at', x, z, 'scale', scale, 'collision radius', radius);
+    }, undefined, (error) => {
+        console.warn('Could not load model:', path, error);
+    });
+}
+
+// Clear model colliders when changing boards
+function clearModelColliders() {
+    modelColliders = [];
+}
 
 let currentBoardIndex = 0;
 let currentBoard = BOARDS[0];
@@ -781,7 +917,16 @@ const state = {
         fastestCatch: null,   // As seeker
         longestSurvival: null, // As hider
         roundsPlayed: 0
-    }
+    },
+    // Collectibles
+    coins: 0,
+    collectibles: [],       // Array of active coins/powerups in the world
+    activePowerup: null,    // Current active powerup type
+    powerupEndTime: 0,      // When the active powerup expires
+    seekerFrozen: false,    // Is seeker frozen by freeze powerup
+    hiderInvisible: false,  // Is hider invisible
+    hiderSpeedBoosted: false, // Is hider speed boosted
+    lastPowerupSpawn: 0     // Timestamp of last powerup spawn
 };
 
 // ==========================================
@@ -796,6 +941,7 @@ let seekerCelebrateModel, seekerCelebrateAnimations;
 let hiderModel, hiderAnimations;
 let hiderCelebrateModel, hiderCelebrateAnimations;
 let wallMeshes = [];
+let collectibleMeshes = [];  // Coin and powerup 3D meshes
 let floorMesh;
 let playerMixer, opponentMixer;
 let walkTime = 0;
@@ -1205,6 +1351,7 @@ function createArena() {
     themeParticles = [];
     themeLights.forEach(l => scene.remove(l));
     themeLights = [];
+    clearModelColliders();
 
     // Clear dust particles and glows
     dustParticles.forEach(p => scene.remove(p));
@@ -1519,10 +1666,460 @@ function createThemedWalls(board) {
         scene.add(edges);
         wallMeshes.push(edges);
     });
+
+    // Add circular boundary wall around the arena
+    const boundaryHeight = CONFIG.WALL_HEIGHT * 1.5;
+    const boundaryRadius = CONFIG.ARENA_RADIUS;
+    const wallThickness = 2;
+
+    // Create a ring geometry (cylinder with hole)
+    const boundaryGeometry = new THREE.CylinderGeometry(
+        boundaryRadius + wallThickness,  // outer radius
+        boundaryRadius + wallThickness,  // outer radius bottom
+        boundaryHeight,                   // height
+        64,                               // segments
+        1,                                // height segments
+        true                              // open ended
+    );
+
+    const boundaryMaterial = new THREE.MeshStandardMaterial({
+        color: board.style.wall,
+        roughness: 0.8,
+        metalness: 0.2,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide
+    });
+
+    const boundaryMesh = new THREE.Mesh(boundaryGeometry, boundaryMaterial);
+    boundaryMesh.position.set(0, boundaryHeight / 2, 0);
+    boundaryMesh.castShadow = true;
+    boundaryMesh.receiveShadow = true;
+    scene.add(boundaryMesh);
+    wallMeshes.push(boundaryMesh);
+}
+
+// ==========================================
+// Collectibles System (Coins & Powerups)
+// ==========================================
+
+const POWERUP_TYPES = ['invisibility', 'speed', 'freeze'];
+
+function createCoinMesh() {
+    // Create a gold spinning coin
+    const geometry = new THREE.CylinderGeometry(CONFIG.COIN_RADIUS, CONFIG.COIN_RADIUS, 0.2, 16);
+    const material = new THREE.MeshStandardMaterial({
+        color: 0xffd700,
+        metalness: 0.8,
+        roughness: 0.2,
+        emissive: 0xffa500,
+        emissiveIntensity: 0.3
+    });
+    const coin = new THREE.Mesh(geometry, material);
+    coin.rotation.x = Math.PI / 2;
+
+    // Add glow ring
+    const glowGeometry = new THREE.TorusGeometry(CONFIG.COIN_RADIUS + 0.2, 0.1, 8, 16);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffff00,
+        transparent: true,
+        opacity: 0.5
+    });
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    glow.rotation.x = Math.PI / 2;
+
+    const group = new THREE.Group();
+    group.add(coin);
+    group.add(glow);
+    group.userData.type = 'coin';
+    group.userData.rotationSpeed = 0.03 + Math.random() * 0.02;
+    group.userData.bobOffset = Math.random() * Math.PI * 2;
+
+    return group;
+}
+
+function createPowerupMesh(type) {
+    const group = new THREE.Group();
+
+    let color, emissiveColor;
+    switch (type) {
+        case 'invisibility':
+            color = 0x8844ff;
+            emissiveColor = 0x6622cc;
+            break;
+        case 'speed':
+            color = 0x00ffff;
+            emissiveColor = 0x00aaaa;
+            break;
+        case 'freeze':
+            color = 0x88ddff;
+            emissiveColor = 0x4488ff;
+            break;
+    }
+
+    // Main sphere
+    const geometry = new THREE.SphereGeometry(CONFIG.POWERUP_RADIUS, 16, 16);
+    const material = new THREE.MeshStandardMaterial({
+        color: color,
+        metalness: 0.5,
+        roughness: 0.3,
+        emissive: emissiveColor,
+        emissiveIntensity: 0.5,
+        transparent: true,
+        opacity: 0.8
+    });
+    const sphere = new THREE.Mesh(geometry, material);
+    group.add(sphere);
+
+    // Outer glow ring
+    const ringGeometry = new THREE.TorusGeometry(CONFIG.POWERUP_RADIUS + 0.4, 0.15, 8, 32);
+    const ringMaterial = new THREE.MeshBasicMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.4
+    });
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    ring.rotation.x = Math.PI / 2;
+    group.add(ring);
+
+    // Second ring at angle
+    const ring2 = ring.clone();
+    ring2.rotation.y = Math.PI / 3;
+    group.add(ring2);
+
+    group.userData.type = 'powerup';
+    group.userData.powerupType = type;
+    group.userData.rotationSpeed = 0.02;
+    group.userData.bobOffset = Math.random() * Math.PI * 2;
+
+    return group;
+}
+
+function getRandomSpawnPosition() {
+    // Find a position not too close to walls or players
+    let attempts = 0;
+    while (attempts < 50) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 5 + Math.random() * (CONFIG.ARENA_RADIUS - 10);
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+
+        // Check distance from players
+        const playerDist = Math.sqrt(Math.pow(x - state.player.x, 2) + Math.pow(z - state.player.z, 2));
+        const opponentDist = Math.sqrt(Math.pow(x - state.opponent.x, 2) + Math.pow(z - state.opponent.z, 2));
+
+        if (playerDist > 8 && opponentDist > 8) {
+            // Check not inside a wall
+            let insideWall = false;
+            for (const wall of currentBoard.walls) {
+                if (x >= wall.x && x <= wall.x + wall.w &&
+                    z >= wall.z && z <= wall.z + wall.d) {
+                    insideWall = true;
+                    break;
+                }
+            }
+            if (!insideWall) {
+                return { x, z };
+            }
+        }
+        attempts++;
+    }
+    // Fallback to center-ish area
+    return { x: (Math.random() - 0.5) * 20, z: (Math.random() - 0.5) * 20 };
+}
+
+function spawnCoins() {
+    // Clear existing coins
+    clearCollectibles();
+
+    for (let i = 0; i < CONFIG.COIN_COUNT; i++) {
+        const pos = getRandomSpawnPosition();
+        const coinMesh = createCoinMesh();
+        coinMesh.position.set(pos.x, 1.5, pos.z);
+        scene.add(coinMesh);
+        collectibleMeshes.push(coinMesh);
+
+        state.collectibles.push({
+            type: 'coin',
+            x: pos.x,
+            z: pos.z,
+            mesh: coinMesh,
+            collected: false
+        });
+    }
+}
+
+function spawnPowerup() {
+    // Remove any existing powerup first
+    for (let i = state.collectibles.length - 1; i >= 0; i--) {
+        if (state.collectibles[i].type === 'powerup' && !state.collectibles[i].collected) {
+            if (state.collectibles[i].mesh) {
+                scene.remove(state.collectibles[i].mesh);
+            }
+            state.collectibles.splice(i, 1);
+        }
+    }
+
+    const powerupType = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+    const pos = getRandomSpawnPosition();
+    const powerupMesh = createPowerupMesh(powerupType);
+    powerupMesh.position.set(pos.x, 2, pos.z);
+    scene.add(powerupMesh);
+    collectibleMeshes.push(powerupMesh);
+
+    state.collectibles.push({
+        type: 'powerup',
+        powerupType: powerupType,
+        x: pos.x,
+        z: pos.z,
+        mesh: powerupMesh,
+        collected: false
+    });
+
+    state.lastPowerupSpawn = Date.now();
+}
+
+function clearCollectibles() {
+    for (const collectible of state.collectibles) {
+        if (collectible.mesh) {
+            scene.remove(collectible.mesh);
+        }
+    }
+    state.collectibles = [];
+    collectibleMeshes = [];
+}
+
+function checkCollectibleCollision(playerX, playerZ, isHider) {
+    const now = Date.now();
+
+    for (let i = state.collectibles.length - 1; i >= 0; i--) {
+        const collectible = state.collectibles[i];
+        if (collectible.collected) continue;
+
+        const dist = Math.sqrt(
+            Math.pow(playerX - collectible.x, 2) +
+            Math.pow(playerZ - collectible.z, 2)
+        );
+
+        if (dist < CONFIG.COLLECTIBLE_PICKUP_DISTANCE) {
+            if (collectible.type === 'coin') {
+                // Both players can collect coins
+                collectCoin(collectible, i);
+            } else if (collectible.type === 'powerup' && isHider) {
+                // Only hider can collect powerups
+                collectPowerup(collectible, i);
+            }
+        }
+    }
+}
+
+function collectCoin(collectible, index) {
+    state.coins++;
+    collectible.collected = true;
+
+    // Play coin sound
+    SoundManager.playCoinCollect();
+
+    // Animate coin collection (scale up and fade)
+    const mesh = collectible.mesh;
+    if (mesh) {
+        const startScale = mesh.scale.x;
+        const startY = mesh.position.y;
+        let progress = 0;
+
+        const animateCoinCollect = () => {
+            progress += 0.05;
+            if (progress < 1) {
+                mesh.scale.setScalar(startScale * (1 + progress));
+                mesh.position.y = startY + progress * 3;
+                mesh.children.forEach(child => {
+                    if (child.material) {
+                        child.material.opacity = 1 - progress;
+                    }
+                });
+                requestAnimationFrame(animateCoinCollect);
+            } else {
+                scene.remove(mesh);
+            }
+        };
+        animateCoinCollect();
+    }
+
+    // Update coin UI
+    updateCoinUI();
+}
+
+function collectPowerup(collectible, index) {
+    const powerupType = collectible.powerupType;
+    collectible.collected = true;
+
+    // Play powerup sound
+    SoundManager.playPowerupCollect();
+
+    // Remove mesh
+    if (collectible.mesh) {
+        scene.remove(collectible.mesh);
+    }
+
+    // Apply powerup effect
+    applyPowerup(powerupType);
+}
+
+function applyPowerup(type) {
+    const now = Date.now();
+    state.activePowerup = type;
+
+    switch (type) {
+        case 'invisibility':
+            state.hiderInvisible = true;
+            state.powerupEndTime = now + CONFIG.INVISIBILITY_DURATION;
+            // Make hider semi-transparent (only visible to hider themselves)
+            if (state.role === 'hider' && playerMesh) {
+                playerMesh.traverse(child => {
+                    if (child.material) {
+                        child.material.transparent = true;
+                        child.material.opacity = 0.3;
+                    }
+                });
+            }
+            break;
+
+        case 'speed':
+            state.hiderSpeedBoosted = true;
+            state.powerupEndTime = now + CONFIG.SPEED_BOOST_DURATION;
+            break;
+
+        case 'freeze':
+            state.seekerFrozen = true;
+            state.powerupEndTime = now + CONFIG.FREEZE_DURATION;
+            // Visual effect on opponent if we're hider
+            if (state.role === 'hider' && opponentMesh) {
+                opponentMesh.traverse(child => {
+                    if (child.material && child.material.emissive) {
+                        child.material.emissive.setHex(0x4488ff);
+                        child.material.emissiveIntensity = 0.5;
+                    }
+                });
+            }
+            break;
+    }
+
+    updatePowerupUI();
+}
+
+function updatePowerupEffects() {
+    const now = Date.now();
+
+    // Check if powerup expired
+    if (state.activePowerup && now >= state.powerupEndTime) {
+        // Reset effects
+        if (state.hiderInvisible) {
+            state.hiderInvisible = false;
+            if (state.role === 'hider' && playerMesh) {
+                playerMesh.traverse(child => {
+                    if (child.material) {
+                        child.material.transparent = false;
+                        child.material.opacity = 1;
+                    }
+                });
+            }
+        }
+
+        if (state.hiderSpeedBoosted) {
+            state.hiderSpeedBoosted = false;
+        }
+
+        if (state.seekerFrozen) {
+            state.seekerFrozen = false;
+            if (state.role === 'hider' && opponentMesh) {
+                opponentMesh.traverse(child => {
+                    if (child.material && child.material.emissive) {
+                        child.material.emissive.setHex(0x000000);
+                        child.material.emissiveIntensity = 0;
+                    }
+                });
+            }
+        }
+
+        state.activePowerup = null;
+        updatePowerupUI();
+    }
+
+    // Spawn powerup periodically
+    if (!state.gameOver && now - state.lastPowerupSpawn > CONFIG.POWERUP_SPAWN_INTERVAL) {
+        spawnPowerup();
+    }
+}
+
+function updateCollectibleAnimations() {
+    const time = Date.now() * 0.001;
+
+    for (const collectible of state.collectibles) {
+        if (collectible.collected || !collectible.mesh) continue;
+
+        const mesh = collectible.mesh;
+
+        // Rotation
+        mesh.rotation.y += mesh.userData.rotationSpeed || 0.02;
+
+        // Bobbing
+        const bobOffset = mesh.userData.bobOffset || 0;
+        mesh.position.y = (collectible.type === 'coin' ? 1.5 : 2) + Math.sin(time * 2 + bobOffset) * 0.3;
+    }
+}
+
+function updateCoinUI() {
+    const coinDisplay = document.getElementById('coin-display');
+    if (coinDisplay) {
+        coinDisplay.textContent = state.coins;
+    }
+}
+
+function updatePowerupUI() {
+    const powerupIndicator = document.getElementById('powerup-indicator');
+    if (!powerupIndicator) return;
+
+    if (state.activePowerup) {
+        powerupIndicator.style.display = 'flex';
+        const remaining = Math.max(0, Math.ceil((state.powerupEndTime - Date.now()) / 1000));
+
+        let icon, label;
+        switch (state.activePowerup) {
+            case 'invisibility':
+                icon = '👻';
+                label = 'INVISIBLE';
+                break;
+            case 'speed':
+                icon = '⚡';
+                label = 'SPEED';
+                break;
+            case 'freeze':
+                icon = '❄️';
+                label = 'FREEZE';
+                break;
+        }
+
+        powerupIndicator.innerHTML = `${icon} ${label} ${remaining}s`;
+    } else {
+        powerupIndicator.style.display = 'none';
+    }
 }
 
 // Haunted theme - fog/mist particles
 function createHauntedEffects() {
+    // ========== LOAD 3D MODELS ==========
+    const modelBasePath = 'images/maze elements/compressed/';
+
+    // Ghost floating around (small collision - can walk close to them)
+    loadBoardModel(modelBasePath + 'ghost.glb', -25, -25, 15, 0, 2, 5);
+    loadBoardModel(modelBasePath + 'ghost.glb', 25, 25, 12, Math.PI, 2, 5);
+
+    // Headstones scattered (small collision)
+    loadBoardModel(modelBasePath + 'headstone.glb', -32, 0, 10, 0, 1.5, 2);
+    loadBoardModel(modelBasePath + 'headstone.glb', 32, 0, 10, Math.PI, 1.5, 2);
+    loadBoardModel(modelBasePath + 'headstone.glb', 0, -32, 8, Math.PI / 4, 1.5, 2);
+    loadBoardModel(modelBasePath + 'headstone.glb', 0, 32, 9, -Math.PI / 4, 1.5, 2);
+
     // Add fog/mist particles
     const fogCount = 50;
     for (let i = 0; i < fogCount; i++) {
@@ -1551,15 +2148,21 @@ function createHauntedEffects() {
         themeParticles.push(fog);
     }
 
-    // Dim the ambient light for haunted effect
+    // Slightly dim lighting for haunted effect but still visible
     scene.children.forEach(child => {
         if (child.isAmbientLight) {
-            child.intensity = 0.3;
+            child.intensity = 0.6; // Brighter so seeker can see
         }
         if (child.isDirectionalLight && !child.shadow) {
-            child.intensity = 0.2;
+            child.intensity = 0.5;
         }
     });
+
+    // Add some moonlight for visibility
+    const moonLight = new THREE.DirectionalLight(0x8888ff, 0.4);
+    moonLight.position.set(-10, 20, 10);
+    scene.add(moonLight);
+    themeLights.push(moonLight);
 }
 
 // Neon theme - grid lines and electric particles
@@ -1610,6 +2213,16 @@ function createNeonEffects(board) {
 
 // Medieval theme - torches with flickering light
 function createMedievalEffects(board) {
+    // ========== LOAD 3D MODELS ==========
+    const modelBasePath = 'images/maze elements/compressed/';
+
+    // Knight guards at entrance areas (small collision)
+    loadBoardModel(modelBasePath + 'knight.glb', -30, 0, 15, Math.PI / 2, 2);
+    loadBoardModel(modelBasePath + 'knight.glb', 30, 0, 15, -Math.PI / 2, 2);
+
+    // Fortress structure in back (medium collision)
+    loadBoardModel(modelBasePath + 'fortress.glb', 0, -32, 12, 0, 4);
+
     // Add torches at wall corners
     const torchPositions = [
         { x: -28, z: -28 },
@@ -1656,10 +2269,72 @@ function createMedievalEffects(board) {
     });
 }
 
-// Garden theme - floating leaves and butterflies
+// Garden theme - 3D props + floating leaves and butterflies
 function createGardenEffects() {
-    // Floating leaves
-    const leafCount = 30;
+    // ========== PROCEDURAL TREES ==========
+    const treePositions = [
+        { x: -28, z: -28 },
+        { x: 28, z: -28 },
+        { x: -28, z: 28 },
+        { x: 28, z: 28 },
+        { x: -15, z: 15 },
+        { x: 15, z: -15 },
+    ];
+
+    treePositions.forEach(pos => {
+        const tree = createTree(pos.x, pos.z);
+        scene.add(tree);
+        themeParticles.push(tree);
+        // Add collision for tree trunk
+        modelColliders.push({ x: pos.x, z: pos.z, radius: 2 });
+    });
+
+    // ========== BUSHES ==========
+    const bushPositions = [
+        { x: -10, z: -22, scale: 1.2 },
+        { x: 10, z: 22, scale: 1.0 },
+        { x: -22, z: 8, scale: 0.8 },
+        { x: 22, z: -8, scale: 1.1 },
+    ];
+
+    bushPositions.forEach(pos => {
+        const bush = createBush(pos.x, pos.z, pos.scale);
+        scene.add(bush);
+        themeParticles.push(bush);
+        // Add collision for bush
+        modelColliders.push({ x: pos.x, z: pos.z, radius: 1.5 * pos.scale });
+    });
+
+    // ========== FLOWER PATCHES ==========
+    const flowerPatches = [
+        { x: -15, z: -10 },
+        { x: 15, z: 10 },
+    ];
+
+    flowerPatches.forEach(pos => {
+        const flowers = createFlowerPatch(pos.x, pos.z);
+        flowers.forEach(flower => {
+            scene.add(flower);
+            themeParticles.push(flower);
+        });
+    });
+
+    // ========== DECORATIVE ROCKS ==========
+    const rockPositions = [
+        { x: -32, z: 0, scale: 1.2 },
+        { x: 32, z: 0, scale: 1.0 },
+    ];
+
+    rockPositions.forEach(pos => {
+        const rock = createRock(pos.x, pos.z, pos.scale);
+        scene.add(rock);
+        themeParticles.push(rock);
+        // Add collision for rock
+        modelColliders.push({ x: pos.x, z: pos.z, radius: 2 * pos.scale });
+    });
+
+    // ========== FLOATING LEAVES ==========
+    const leafCount = 20;
     const leafColors = [0x228b22, 0x32cd32, 0x90ee90, 0xffd700, 0xff8c00];
 
     for (let i = 0; i < leafCount; i++) {
@@ -1676,7 +2351,7 @@ function createGardenEffects() {
         const radius = Math.random() * CONFIG.ARENA_RADIUS * 0.9;
         leaf.position.set(
             Math.cos(angle) * radius,
-            2 + Math.random() * 6,
+            3 + Math.random() * 8,
             Math.sin(angle) * radius
         );
         leaf.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
@@ -1684,16 +2359,329 @@ function createGardenEffects() {
         leaf.userData.swaySpeed = 1 + Math.random() * 2;
         leaf.userData.swayOffset = Math.random() * Math.PI * 2;
         leaf.userData.rotSpeed = 0.02 + Math.random() * 0.03;
+        leaf.userData.isLeaf = true;
 
         scene.add(leaf);
         themeParticles.push(leaf);
     }
 
+    // ========== BUTTERFLIES ==========
+    for (let i = 0; i < 6; i++) {
+        const butterfly = createButterfly();
+        scene.add(butterfly);
+        themeParticles.push(butterfly);
+    }
+
     // Bright sunny lighting
-    const sunLight = new THREE.DirectionalLight(0xffffee, 1);
+    const sunLight = new THREE.DirectionalLight(0xffffee, 1.2);
     sunLight.position.set(20, 30, 10);
+    sunLight.castShadow = true;
     scene.add(sunLight);
     themeLights.push(sunLight);
+
+    // Warm fill light
+    const fillLight = new THREE.DirectionalLight(0xffeedd, 0.4);
+    fillLight.position.set(-15, 20, -10);
+    scene.add(fillLight);
+    themeLights.push(fillLight);
+}
+
+// Helper function: Create a 3D tree
+function createTree(x, z) {
+    const tree = new THREE.Group();
+
+    // Trunk - brown cylinder with more segments for smoothness
+    const trunkGeometry = new THREE.CylinderGeometry(0.6, 1.0, 7, 16);
+    const trunkMaterial = new THREE.MeshStandardMaterial({
+        color: 0x5d4037,
+        roughness: 0.9,
+        metalness: 0.0
+    });
+    const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+    trunk.position.y = 3.5;
+    trunk.castShadow = true;
+    tree.add(trunk);
+
+    // Foliage - clustered spheres for a natural rounded canopy
+    const foliageColors = [0x2e7d32, 0x388e3c, 0x43a047, 0x4caf50];
+
+    // Main canopy cluster positions (relative to trunk top)
+    const canopyPositions = [
+        { x: 0, y: 9, z: 0, size: 3.5 },      // Center top
+        { x: 2, y: 7.5, z: 1, size: 2.8 },    // Right front
+        { x: -2, y: 7.5, z: 1, size: 2.8 },   // Left front
+        { x: 1, y: 7.5, z: -2, size: 2.8 },   // Right back
+        { x: -1, y: 7.5, z: -2, size: 2.8 },  // Left back
+        { x: 0, y: 11, z: 0, size: 2.2 },     // Top
+        { x: 1.5, y: 10, z: 0.5, size: 2 },   // Upper right
+        { x: -1.5, y: 10, z: -0.5, size: 2 }, // Upper left
+    ];
+
+    canopyPositions.forEach((pos, i) => {
+        const foliageGeometry = new THREE.IcosahedronGeometry(pos.size, 1);
+        const foliageMaterial = new THREE.MeshStandardMaterial({
+            color: foliageColors[i % foliageColors.length],
+            roughness: 0.8,
+            metalness: 0.0,
+            flatShading: false
+        });
+        const foliage = new THREE.Mesh(foliageGeometry, foliageMaterial);
+        foliage.position.set(pos.x, pos.y, pos.z);
+        // Slight random rotation for variety
+        foliage.rotation.set(Math.random() * 0.3, Math.random() * Math.PI, Math.random() * 0.3);
+        foliage.castShadow = true;
+        tree.add(foliage);
+    });
+
+    tree.position.set(x, 0, z);
+    tree.userData.isTree = true;
+
+    return tree;
+}
+
+// Helper function: Create a bush
+function createBush(x, z, scale = 1) {
+    const bush = new THREE.Group();
+
+    const bushMaterial = new THREE.MeshStandardMaterial({
+        color: 0x228b22,
+        roughness: 0.9,
+        metalness: 0.0
+    });
+
+    // Multiple overlapping spheres for organic look
+    const spherePositions = [
+        { x: 0, y: 1.2, z: 0, r: 1.5 },
+        { x: 0.8, y: 1, z: 0.5, r: 1.2 },
+        { x: -0.7, y: 1, z: 0.6, r: 1.1 },
+        { x: 0.3, y: 1.5, z: -0.5, r: 1.0 },
+        { x: -0.4, y: 0.8, z: -0.6, r: 1.3 },
+    ];
+
+    spherePositions.forEach((pos, i) => {
+        const geometry = new THREE.SphereGeometry(pos.r * scale, 8, 8);
+        const mat = bushMaterial.clone();
+        // Vary the green slightly
+        const hueShift = (Math.random() - 0.5) * 0.1;
+        mat.color.setHSL(0.33 + hueShift, 0.7, 0.3 + Math.random() * 0.1);
+
+        const sphere = new THREE.Mesh(geometry, mat);
+        sphere.position.set(pos.x * scale, pos.y * scale, pos.z * scale);
+        sphere.castShadow = true;
+        bush.add(sphere);
+    });
+
+    bush.position.set(x, 0, z);
+    bush.userData.isBush = true;
+
+    return bush;
+}
+
+// Helper function: Create flower patch
+function createFlowerPatch(x, z) {
+    const flowers = [];
+    const flowerColors = [0xff69b4, 0xff1493, 0xffd700, 0xff6347, 0xda70d6, 0xffffff];
+
+    for (let i = 0; i < 12; i++) {
+        const flower = new THREE.Group();
+
+        // Stem
+        const stemGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.8, 6);
+        const stemMaterial = new THREE.MeshStandardMaterial({ color: 0x228b22 });
+        const stem = new THREE.Mesh(stemGeometry, stemMaterial);
+        stem.position.y = 0.4;
+        flower.add(stem);
+
+        // Flower head - simple sphere
+        const petalGeometry = new THREE.SphereGeometry(0.25, 8, 8);
+        const petalMaterial = new THREE.MeshStandardMaterial({
+            color: flowerColors[Math.floor(Math.random() * flowerColors.length)],
+            roughness: 0.5
+        });
+        const petal = new THREE.Mesh(petalGeometry, petalMaterial);
+        petal.position.y = 0.9;
+        flower.add(petal);
+
+        // Center
+        const centerGeometry = new THREE.SphereGeometry(0.1, 6, 6);
+        const centerMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700 });
+        const center = new THREE.Mesh(centerGeometry, centerMaterial);
+        center.position.y = 0.95;
+        flower.add(center);
+
+        // Random position within patch
+        flower.position.set(
+            x + (Math.random() - 0.5) * 4,
+            0,
+            z + (Math.random() - 0.5) * 4
+        );
+        flower.userData.isFlower = true;
+        flower.userData.swayOffset = Math.random() * Math.PI * 2;
+
+        flowers.push(flower);
+    }
+
+    return flowers;
+}
+
+// Helper function: Create fountain
+function createFountain(x, z) {
+    const fountain = new THREE.Group();
+
+    // Base pool - circular
+    const poolGeometry = new THREE.CylinderGeometry(3, 3.5, 1, 16);
+    const poolMaterial = new THREE.MeshStandardMaterial({
+        color: 0x808080,
+        roughness: 0.7,
+        metalness: 0.2
+    });
+    const pool = new THREE.Mesh(poolGeometry, poolMaterial);
+    pool.position.y = 0.5;
+    fountain.add(pool);
+
+    // Water surface
+    const waterGeometry = new THREE.CylinderGeometry(2.8, 2.8, 0.1, 16);
+    const waterMaterial = new THREE.MeshStandardMaterial({
+        color: 0x4a90d9,
+        roughness: 0.1,
+        metalness: 0.3,
+        transparent: true,
+        opacity: 0.8
+    });
+    const water = new THREE.Mesh(waterGeometry, waterMaterial);
+    water.position.y = 0.9;
+    fountain.add(water);
+
+    // Center pillar
+    const pillarGeometry = new THREE.CylinderGeometry(0.4, 0.6, 3, 8);
+    const pillar = new THREE.Mesh(pillarGeometry, poolMaterial);
+    pillar.position.y = 2;
+    fountain.add(pillar);
+
+    // Top dish
+    const dishGeometry = new THREE.CylinderGeometry(1.2, 0.8, 0.5, 12);
+    const dish = new THREE.Mesh(dishGeometry, poolMaterial);
+    dish.position.y = 3.5;
+    fountain.add(dish);
+
+    fountain.position.set(x, 0, z);
+    fountain.userData.isFountain = true;
+
+    return fountain;
+}
+
+// Helper function: Create water droplet for fountain
+function createWaterDroplet() {
+    const geometry = new THREE.SphereGeometry(0.1, 6, 6);
+    const material = new THREE.MeshBasicMaterial({
+        color: 0x87ceeb,
+        transparent: true,
+        opacity: 0.7
+    });
+    const droplet = new THREE.Mesh(geometry, material);
+
+    // Start at fountain top
+    droplet.position.set(0, 4, 0);
+    droplet.userData.isWaterDroplet = true;
+    droplet.userData.velocity = {
+        x: (Math.random() - 0.5) * 0.1,
+        y: 0.15 + Math.random() * 0.1,
+        z: (Math.random() - 0.5) * 0.1
+    };
+    droplet.userData.gravity = -0.008;
+
+    return droplet;
+}
+
+// Helper function: Create decorative rock
+function createRock(x, z, scale = 1) {
+    const rock = new THREE.Group();
+
+    const rockMaterial = new THREE.MeshStandardMaterial({
+        color: 0x696969,
+        roughness: 0.95,
+        metalness: 0.1
+    });
+
+    // Main rock body - dodecahedron for irregular look
+    const mainGeometry = new THREE.DodecahedronGeometry(1.5 * scale, 0);
+    const mainRock = new THREE.Mesh(mainGeometry, rockMaterial);
+    mainRock.position.y = 1 * scale;
+    mainRock.rotation.set(Math.random(), Math.random(), Math.random());
+    mainRock.castShadow = true;
+    rock.add(mainRock);
+
+    // Smaller accent rocks
+    for (let i = 0; i < 2; i++) {
+        const smallGeometry = new THREE.DodecahedronGeometry(0.5 * scale, 0);
+        const smallRock = new THREE.Mesh(smallGeometry, rockMaterial.clone());
+        smallRock.material.color.setHex(0x5a5a5a);
+        smallRock.position.set(
+            (Math.random() - 0.5) * 2 * scale,
+            0.4 * scale,
+            (Math.random() - 0.5) * 2 * scale
+        );
+        smallRock.rotation.set(Math.random(), Math.random(), Math.random());
+        rock.add(smallRock);
+    }
+
+    rock.position.set(x, 0, z);
+    rock.userData.isRock = true;
+
+    return rock;
+}
+
+// Helper function: Create butterfly
+function createButterfly() {
+    const butterfly = new THREE.Group();
+
+    const wingColors = [0xff69b4, 0xffa500, 0x87ceeb, 0xdda0dd, 0xffff00];
+    const wingColor = wingColors[Math.floor(Math.random() * wingColors.length)];
+
+    const wingMaterial = new THREE.MeshBasicMaterial({
+        color: wingColor,
+        transparent: true,
+        opacity: 0.8,
+        side: THREE.DoubleSide
+    });
+
+    // Wings - simple planes
+    const wingGeometry = new THREE.PlaneGeometry(0.4, 0.3);
+
+    const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
+    leftWing.position.x = -0.15;
+    leftWing.rotation.y = 0.3;
+    butterfly.add(leftWing);
+
+    const rightWing = new THREE.Mesh(wingGeometry, wingMaterial);
+    rightWing.position.x = 0.15;
+    rightWing.rotation.y = -0.3;
+    butterfly.add(rightWing);
+
+    // Body
+    const bodyGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.3, 6);
+    const bodyMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.rotation.z = Math.PI / 2;
+    butterfly.add(body);
+
+    // Random starting position
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 5 + Math.random() * 25;
+    butterfly.position.set(
+        Math.cos(angle) * radius,
+        2 + Math.random() * 4,
+        Math.sin(angle) * radius
+    );
+
+    butterfly.userData.isButterfly = true;
+    butterfly.userData.flightAngle = angle;
+    butterfly.userData.flightRadius = radius;
+    butterfly.userData.flightSpeed = 0.005 + Math.random() * 0.01;
+    butterfly.userData.bobOffset = Math.random() * Math.PI * 2;
+    butterfly.userData.wingPhase = Math.random() * Math.PI * 2;
+
+    return butterfly;
 }
 
 // Psychedelic theme - color-shifting walls and spiral particles
@@ -1920,6 +2908,13 @@ function createStreetsEffects() {
 
 // Park theme - pond with ducks, butterflies, birds
 function createParkEffects() {
+    // ========== LOAD 3D MODELS ==========
+    const modelBasePath = 'images/maze elements/compressed/';
+
+    // Park bench (small collision)
+    loadBoardModel(modelBasePath + 'park_bench.glb', -32, -20, 15, Math.PI / 4, 2);
+    loadBoardModel(modelBasePath + 'park_bench.glb', 32, 20, 15, -Math.PI * 3/4, 2);
+
     // Create the pond in the center
     const pondGeometry = new THREE.CircleGeometry(10, 32);
     const pondMaterial = new THREE.MeshStandardMaterial({
@@ -2007,6 +3002,17 @@ function createParkEffects() {
 
 // Bathroom theme - steam, dripping water, rubber ducks
 function createBathroomEffects() {
+    // ========== LOAD 3D MODELS ==========
+    const modelBasePath = 'images/maze elements/compressed/';
+
+    // Toilet (adds to the stalls) - small collision
+    loadBoardModel(modelBasePath + 'toilet.glb', -32, -25, 10, Math.PI / 2, 1.5);
+    loadBoardModel(modelBasePath + 'toilet.glb', -32, -5, 10, Math.PI / 2, 1.5);
+
+    // Sink along the wall - small collision
+    loadBoardModel(modelBasePath + 'sink.glb', 30, -25, 8, -Math.PI / 2, 1.5);
+    loadBoardModel(modelBasePath + 'sink.glb', 30, 5, 8, -Math.PI / 2, 1.5);
+
     // Steam particles rising
     for (let i = 0; i < 30; i++) {
         const geometry = new THREE.SphereGeometry(0.3 + Math.random() * 0.5, 8, 8);
@@ -3047,6 +4053,13 @@ function startGame() {
     elements.roleDisplay.textContent = state.role.toUpperCase();
     elements.roleDisplay.className = state.role;
     elements.abilityDisplay.style.display = state.role === 'seeker' ? 'block' : 'none';
+
+    // Also hide mobile boost button if not seeker
+    const mobileBoostBtn = document.getElementById('boost-btn');
+    if (mobileBoostBtn) {
+        mobileBoostBtn.style.display = state.role === 'seeker' ? 'block' : 'none';
+    }
+
     updateTimerDisplay();
 
     // Create 3D scene
@@ -3054,6 +4067,17 @@ function startGame() {
     createPlayers();
     createDustParticles();
     createCharacterGlow();
+
+    // Initialize collectibles
+    state.collectibles = [];
+    state.activePowerup = null;
+    state.powerupEndTime = 0;
+    state.seekerFrozen = false;
+    state.hiderInvisible = false;
+    state.hiderSpeedBoosted = false;
+    state.lastPowerupSpawn = Date.now();
+    spawnCoins();
+    updateCoinUI();
 
     // Activate vision cone for seeker, deactivate for hider
     if (state.role === 'seeker') {
@@ -3455,6 +4479,10 @@ function advanceToNextBoard() {
 
 function checkCatch() {
     if (state.role !== 'seeker') return;
+
+    // Can't catch invisible hider
+    if (state.hiderInvisible) return;
+
     const dx = state.player.x - state.opponent.x;
     const dz = state.player.z - state.opponent.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
@@ -3550,6 +4578,10 @@ function createCatchParticles() {
 // Check if AI seeker catches the player (for solo mode)
 function checkAICatch() {
     if (!state.isSoloMode || state.role !== 'hider') return;
+
+    // Can't catch invisible hider
+    if (state.hiderInvisible) return;
+
     const dx = state.player.x - state.opponent.x;
     const dz = state.player.z - state.opponent.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
@@ -3583,7 +4615,13 @@ function updatePlayer(deltaTime) {
         state.player.angle = Math.atan2(dz, dx);
     }
 
-    const baseSpeed = state.role === 'seeker' ? CONFIG.SEEKER_SPEED : CONFIG.HIDER_SPEED;
+    let baseSpeed = state.role === 'seeker' ? CONFIG.SEEKER_SPEED : CONFIG.HIDER_SPEED;
+
+    // Speed powerup for hider
+    if (state.role === 'hider' && state.hiderSpeedBoosted) {
+        baseSpeed *= 1.5;
+    }
+
     const speed = state.player.boosting ? CONFIG.BOOST_SPEED : baseSpeed;
     dx *= speed;
     dz *= speed;
@@ -3656,6 +4694,25 @@ function updatePlayer(deltaTime) {
 function checkWallCollision(x, z) {
     const result = { x: false, z: false, pushX: 0, pushZ: 0 };
     const r = CONFIG.PLAYER_RADIUS;
+
+    // Check collision with 3D model colliders (circular)
+    for (const collider of modelColliders) {
+        const dx = x - collider.x;
+        const dz = z - collider.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        const minDist = r + collider.radius;
+
+        if (dist < minDist) {
+            // Push player away from model center
+            const pushDist = minDist - dist;
+            const angle = Math.atan2(dz, dx);
+            result.x = true;
+            result.z = true;
+            result.pushX = Math.cos(angle) * pushDist;
+            result.pushZ = Math.sin(angle) * pushDist;
+            return result;
+        }
+    }
 
     for (const wall of currentBoard.walls) {
         const wx = wall.x;
@@ -3806,6 +4863,11 @@ function updateAI(deltaTime) {
 }
 
 function updateSeekerAI(deltaTime) {
+    // Check if seeker is frozen by powerup
+    if (state.seekerFrozen) {
+        return; // Don't move while frozen
+    }
+
     const ai = state.ai;
     const playerVisible = canAISeePoint(state.player.x, state.player.z);
 
@@ -3888,6 +4950,11 @@ function updateHiderAI(deltaTime) {
 
 function canAISeePoint(px, pz) {
     // Check if AI (opponent) can see a point
+    // If AI is seeker and player (hider) is invisible, can't see them
+    if (state.role === 'hider' && state.hiderInvisible) {
+        return false;
+    }
+
     const dx = px - state.opponent.x;
     const dz = pz - state.opponent.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
@@ -4133,6 +5200,12 @@ function animate(currentTime = 0) {
     updatePlayer(deltaTime);
     updateAI(deltaTime);
     updateScene();
+
+    // Update collectibles
+    updateCollectibleAnimations();
+    updatePowerupEffects();
+    checkCollectibleCollision(state.player.x, state.player.z, state.role === 'hider');
+
     render();
 
     requestAnimationFrame(animate);
@@ -4151,12 +5224,12 @@ function updateScene() {
     // Get delta time for animation
     const delta = clock.getDelta();
 
-    // Swap seeker model when boosting
-    if (state.role === 'seeker') {
+    // Speed up animation when boosting (no model swap to avoid freeze)
+    if (state.role === 'seeker' && playerMesh && playerMesh.userData.walkAction) {
         if (state.player.boosting) {
-            swapToBoostModel();
+            playerMesh.userData.walkAction.timeScale = 2.0; // Faster animation when boosting
         } else {
-            swapToNormalModel();
+            playerMesh.userData.walkAction.timeScale = 1.5; // Normal speed
         }
     }
 
@@ -4194,8 +5267,15 @@ function updateScene() {
 
     // Update opponent mesh
     if (opponentMesh) {
-        const visible = state.role === 'hider' ||
+        // Visibility: hider can always see seeker, but seeker can't see invisible hider
+        let visible = state.role === 'hider' ||
             isPointVisible(state.opponent.x, state.opponent.z);
+
+        // If playing as seeker and opponent (hider) is invisible, hide them
+        if (state.role === 'seeker' && state.hiderInvisible) {
+            visible = false;
+        }
+
         opponentMesh.visible = visible;
 
         opponentMesh.position.set(state.opponent.x, 0, state.opponent.z);
@@ -4357,7 +5437,9 @@ function startSoloGame() {
         state: 'patrol'
     };
 
-    currentBoardIndex = 0;
+    // Get selected board from dropdown
+    const boardSelect = document.getElementById('board-select');
+    currentBoardIndex = boardSelect ? parseInt(boardSelect.value) : 0;
     startGame();
 }
 
@@ -4481,6 +5563,7 @@ function initCharacterPreview() {
                 previewMixer = new THREE.AnimationMixer(previewCharacter);
                 const action = previewMixer.clipAction(gltf.animations[0]);
                 action.setLoop(THREE.LoopRepeat, Infinity);
+                action.timeScale = 1.5; // Speed up animation
                 action.play();
             }
 
