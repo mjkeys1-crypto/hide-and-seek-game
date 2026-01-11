@@ -10,12 +10,16 @@
 </head>
 <body>
     <div id="menu-screen" class="screen active">
-        <h1>Hide & Seek</h1>
+        <div class="logo">
+            <img src="images/Logo/logo 1.png" alt="Hide & Seek">
+        </div>
+        <div id="character-preview"></div>
         <p class="subtitle">Two-Player Online Game</p>
 
         <div class="menu-options">
-            <button id="create-btn" class="btn primary">Create Game</button>
-            <div class="divider">or</div>
+            <button id="solo-btn" class="btn primary">Play Solo</button>
+            <div class="divider">or play online</div>
+            <button id="create-btn" class="btn secondary">Create Game</button>
             <input type="text" id="join-code" placeholder="Enter code" maxlength="4">
             <button id="join-btn" class="btn secondary">Join Game</button>
         </div>
@@ -35,6 +39,7 @@
 
     <div id="game-screen" class="screen">
         <div id="game-ui">
+            <button id="home-btn" class="btn small">HOME</button>
             <div id="role-display"></div>
             <div id="timer-display"></div>
             <div id="ability-display">
@@ -69,6 +74,6 @@
     <script src="https://unpkg.com/three@0.140.0/build/three.min.js"></script>
     <script src="https://unpkg.com/three@0.140.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://unpkg.com/three@0.140.0/examples/js/utils/SkeletonUtils.js"></script>
-    <script src="game3d.js?v=8"></script>
+    <script src="game3d.js?v=20"></script>
 </body>
 </html>

@@ -110,6 +110,7 @@ let currentBoard = BOARDS[0];
 const state = {
     screen: 'menu',
     isHost: false,
+    isSoloMode: false,
     peer: null,
     conn: null,
     roomCode: '',
@@ -133,7 +134,15 @@ const state = {
         angle: 0,
         boosting: false
     },
-    keys: { up: false, down: false, left: false, right: false }
+    keys: { up: false, down: false, left: false, right: false },
+    ai: {
+        targetX: 0,
+        targetZ: 0,
+        lastSeenPlayer: null,
+        patrolAngle: 0,
+        thinkTimer: 0,
+        state: 'patrol' // patrol, chase, flee, hide
+    }
 };
 
 // ==========================================
@@ -204,7 +213,7 @@ function initThreeJS() {
 
 function loadSeekerModel() {
     const loader = new THREE.GLTFLoader();
-    loader.load('player.glb',
+    loader.load('images/Characters/Meshy_AI_biped/Meshy_AI_Animation_Walking_withSkin.glb',
         (gltf) => {
             seekerModel = gltf.scene;
             seekerModel.scale.set(5, 5, 5);
@@ -217,7 +226,11 @@ function loadSeekerModel() {
 
             if (gltf.animations && gltf.animations.length > 0) {
                 seekerAnimations = gltf.animations;
-                console.log('Seeker animations found:', gltf.animations.map(a => a.name));
+                console.log('Seeker animations found:', gltf.animations.length, gltf.animations.map(a => a.name));
+                console.log('Animation duration:', gltf.animations[0].duration);
+                console.log('Animation tracks:', gltf.animations[0].tracks.length);
+            } else {
+                console.log('NO ANIMATIONS FOUND IN SEEKER MODEL');
             }
 
             console.log('Seeker model loaded!');
@@ -232,7 +245,7 @@ function loadSeekerModel() {
 
 function loadSeekerBoostModel() {
     const loader = new THREE.GLTFLoader();
-    loader.load('player-boost.glb',
+    loader.load('images/Characters/Meshy_AI_biped/Meshy_AI_Animation_Running_withSkin.glb',
         (gltf) => {
             seekerBoostModel = gltf.scene;
             seekerBoostModel.scale.set(5, 5, 5);
@@ -260,7 +273,7 @@ function loadSeekerBoostModel() {
 
 function loadHiderModel() {
     const loader = new THREE.GLTFLoader();
-    loader.load('hider.glb',
+    loader.load('images/Characters/Meshy_AI_biped/Meshy_AI_Meshy_Merged_Animations - kid 3.glb',
         (gltf) => {
             hiderModel = gltf.scene;
             hiderModel.scale.set(5, 5, 5);
@@ -273,7 +286,11 @@ function loadHiderModel() {
 
             if (gltf.animations && gltf.animations.length > 0) {
                 hiderAnimations = gltf.animations;
-                console.log('Hider animations found:', gltf.animations.map(a => a.name));
+                console.log('Hider animations found:', gltf.animations.length, gltf.animations.map(a => a.name));
+                console.log('Hider animation duration:', gltf.animations[0].duration);
+                console.log('Hider animation tracks:', gltf.animations[0].tracks.length);
+            } else {
+                console.log('NO ANIMATIONS in hider model!');
             }
 
             console.log('Hider model loaded!');
@@ -359,11 +376,27 @@ function createPlayers() {
     // Create player mesh
     if (myModel) {
         playerMesh = THREE.SkeletonUtils.clone(myModel);
+        // Tint player based on role (gold for seeker, cyan for hider)
+        const playerColor = playerIsSeeker ? 0xe5c644 : 0x4dd0e1;
+        playerMesh.traverse((child) => {
+            if (child.isMesh && child.material) {
+                child.material = child.material.clone();
+                child.material.color.setHex(playerColor);
+            }
+        });
         playerMixer = new THREE.AnimationMixer(playerMesh);
         if (myAnimations && myAnimations.length > 0) {
-            playerMesh.userData.walkAction = playerMixer.clipAction(myAnimations[0]);
-            playerMesh.userData.walkAction.play();
-            playerMesh.userData.walkAction.paused = true;
+            console.log('Setting up player animation:', myAnimations[0].name, 'duration:', myAnimations[0].duration);
+            const action = playerMixer.clipAction(myAnimations[0]);
+            action.setLoop(THREE.LoopRepeat, Infinity);
+            action.clampWhenFinished = false;
+            action.timeScale = 1.0;
+            action.play();
+            action.paused = false; // Start playing immediately to test
+            playerMesh.userData.walkAction = action;
+            console.log('Player animation action created, playing:', action.isRunning());
+        } else {
+            console.log('NO ANIMATIONS for player!');
         }
         // Store boost model reference for seeker
         if (playerIsSeeker) {
@@ -386,11 +419,23 @@ function createPlayers() {
     // Create opponent mesh
     if (oppModel) {
         opponentMesh = THREE.SkeletonUtils.clone(oppModel);
+        // Tint opponent based on their role (opposite of player)
+        const opponentColor = playerIsSeeker ? 0x4dd0e1 : 0xe5c644;
+        opponentMesh.traverse((child) => {
+            if (child.isMesh && child.material) {
+                child.material = child.material.clone();
+                child.material.color.setHex(opponentColor);
+            }
+        });
         opponentMixer = new THREE.AnimationMixer(opponentMesh);
         if (oppAnimations && oppAnimations.length > 0) {
-            opponentMesh.userData.walkAction = opponentMixer.clipAction(oppAnimations[0]);
-            opponentMesh.userData.walkAction.play();
-            opponentMesh.userData.walkAction.paused = true;
+            const action = opponentMixer.clipAction(oppAnimations[0]);
+            action.setLoop(THREE.LoopRepeat, Infinity);
+            action.clampWhenFinished = false;
+            action.timeScale = 1.0;
+            action.play();
+            action.paused = true;
+            opponentMesh.userData.walkAction = action;
         }
     } else {
         const geometry = new THREE.CapsuleGeometry(CONFIG.PLAYER_RADIUS * 0.7, CONFIG.PLAYER_RADIUS, 8, 16);
@@ -420,10 +465,22 @@ function swapToBoostModel() {
     playerMesh.rotation.copy(rot);
     playerMesh.userData.isSeeker = true;
 
+    // Apply gold tint to seeker
+    playerMesh.traverse((child) => {
+        if (child.isMesh && child.material) {
+            child.material = child.material.clone();
+            child.material.color.setHex(0xe5c644);
+        }
+    });
+
     playerMixer = new THREE.AnimationMixer(playerMesh);
     if (seekerBoostAnimations && seekerBoostAnimations.length > 0) {
-        playerMesh.userData.walkAction = playerMixer.clipAction(seekerBoostAnimations[0]);
-        playerMesh.userData.walkAction.play();
+        const action = playerMixer.clipAction(seekerBoostAnimations[0]);
+        action.setLoop(THREE.LoopRepeat, Infinity);
+        action.clampWhenFinished = false;
+        action.timeScale = 1.2; // Slightly faster for boost
+        action.play();
+        playerMesh.userData.walkAction = action;
     }
 
     playerMesh.castShadow = true;
@@ -444,11 +501,23 @@ function swapToNormalModel() {
     playerMesh.rotation.copy(rot);
     playerMesh.userData.isSeeker = true;
 
+    // Apply gold tint to seeker
+    playerMesh.traverse((child) => {
+        if (child.isMesh && child.material) {
+            child.material = child.material.clone();
+            child.material.color.setHex(0xe5c644);
+        }
+    });
+
     playerMixer = new THREE.AnimationMixer(playerMesh);
     if (seekerAnimations && seekerAnimations.length > 0) {
-        playerMesh.userData.walkAction = playerMixer.clipAction(seekerAnimations[0]);
-        playerMesh.userData.walkAction.play();
-        playerMesh.userData.walkAction.paused = true;
+        const action = playerMixer.clipAction(seekerAnimations[0]);
+        action.setLoop(THREE.LoopRepeat, Infinity);
+        action.clampWhenFinished = false;
+        action.timeScale = 1.0;
+        action.play();
+        action.paused = true;
+        playerMesh.userData.walkAction = action;
     }
 
     playerMesh.castShadow = true;
@@ -474,6 +543,7 @@ const screens = {
 };
 
 const elements = {
+    soloBtn: document.getElementById('solo-btn'),
     createBtn: document.getElementById('create-btn'),
     joinBtn: document.getElementById('join-btn'),
     joinCode: document.getElementById('join-code'),
@@ -489,7 +559,8 @@ const elements = {
     resultTitle: document.getElementById('result-title'),
     resultMessage: document.getElementById('result-message'),
     playAgainBtn: document.getElementById('play-again-btn'),
-    menuBtn: document.getElementById('menu-btn')
+    menuBtn: document.getElementById('menu-btn'),
+    homeBtn: document.getElementById('home-btn')
 };
 
 // ==========================================
@@ -818,6 +889,13 @@ function advanceToNextBoard() {
     const wasSeeker = state.role === 'seeker';
     state.role = wasSeeker ? 'hider' : 'seeker';
 
+    // Reset AI state for solo mode
+    if (state.isSoloMode) {
+        state.ai.lastSeenPlayer = null;
+        state.ai.thinkTimer = 0;
+        state.ai.patrolAngle = Math.random() * Math.PI * 2;
+    }
+
     if (state.conn && state.conn.open) {
         state.conn.send({
             type: 'next_board',
@@ -835,7 +913,21 @@ function checkCatch() {
     const dist = Math.sqrt(dx * dx + dz * dz);
 
     if (dist < CONFIG.CATCH_DISTANCE) {
-        state.conn.send({ type: 'catch' });
+        if (state.conn && state.conn.open) {
+            state.conn.send({ type: 'catch' });
+        }
+        endGame('caught');
+    }
+}
+
+// Check if AI seeker catches the player (for solo mode)
+function checkAICatch() {
+    if (!state.isSoloMode || state.role !== 'hider') return;
+    const dx = state.player.x - state.opponent.x;
+    const dz = state.player.z - state.opponent.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    if (dist < CONFIG.CATCH_DISTANCE) {
         endGame('caught');
     }
 }
@@ -992,6 +1084,283 @@ function lineIntersectsLine(x1, y1, x2, y2, x3, y3, x4, y4) {
 }
 
 // ==========================================
+// AI Logic for Solo Mode
+// ==========================================
+
+function updateAI(deltaTime) {
+    if (!state.isSoloMode || state.gameOver) return;
+
+    const ai = state.ai;
+    ai.thinkTimer -= deltaTime;
+
+    // AI plays the opposite role of the player
+    const aiRole = state.role === 'seeker' ? 'hider' : 'seeker';
+
+    if (aiRole === 'seeker') {
+        updateSeekerAI(deltaTime);
+        checkAICatch(); // AI seeker can catch the player
+    } else {
+        updateHiderAI(deltaTime);
+    }
+}
+
+function updateSeekerAI(deltaTime) {
+    const ai = state.ai;
+    const playerVisible = canAISeePoint(state.player.x, state.player.z);
+
+    if (playerVisible) {
+        // Chase the player
+        ai.state = 'chase';
+        ai.lastSeenPlayer = { x: state.player.x, z: state.player.z, time: Date.now() };
+        ai.targetX = state.player.x;
+        ai.targetZ = state.player.z;
+    } else if (ai.lastSeenPlayer && Date.now() - ai.lastSeenPlayer.time < 3000) {
+        // Go to last known position
+        ai.targetX = ai.lastSeenPlayer.x;
+        ai.targetZ = ai.lastSeenPlayer.z;
+    } else {
+        // Patrol
+        ai.state = 'patrol';
+        if (ai.thinkTimer <= 0) {
+            ai.thinkTimer = 2000 + Math.random() * 2000;
+            ai.patrolAngle += (Math.random() - 0.5) * Math.PI;
+            const patrolDist = 15 + Math.random() * 15;
+            ai.targetX = state.opponent.x + Math.cos(ai.patrolAngle) * patrolDist;
+            ai.targetZ = state.opponent.z + Math.sin(ai.patrolAngle) * patrolDist;
+            // Keep within arena
+            const dist = Math.sqrt(ai.targetX * ai.targetX + ai.targetZ * ai.targetZ);
+            if (dist > CONFIG.ARENA_RADIUS - 5) {
+                const angle = Math.atan2(ai.targetZ, ai.targetX);
+                ai.targetX = Math.cos(angle) * (CONFIG.ARENA_RADIUS - 10);
+                ai.targetZ = Math.sin(angle) * (CONFIG.ARENA_RADIUS - 10);
+            }
+        }
+    }
+
+    // Move toward target
+    moveAIToward(ai.targetX, ai.targetZ, CONFIG.SEEKER_SPEED, deltaTime);
+}
+
+function updateHiderAI(deltaTime) {
+    const ai = state.ai;
+    const distToSeeker = Math.sqrt(
+        Math.pow(state.opponent.x - state.player.x, 2) +
+        Math.pow(state.opponent.z - state.player.z, 2)
+    );
+
+    // Check if seeker can see us
+    const seekerCanSeeUs = canSeekerSeePoint(state.opponent.x, state.opponent.z);
+
+    if (distToSeeker < 20 || seekerCanSeeUs) {
+        // Flee from seeker
+        ai.state = 'flee';
+        const fleeAngle = Math.atan2(
+            state.opponent.z - state.player.z,
+            state.opponent.x - state.player.x
+        );
+        ai.targetX = state.opponent.x + Math.cos(fleeAngle) * 30;
+        ai.targetZ = state.opponent.z + Math.sin(fleeAngle) * 30;
+
+        // Try to find cover
+        const nearestWall = findNearestWallForCover();
+        if (nearestWall) {
+            ai.targetX = nearestWall.x;
+            ai.targetZ = nearestWall.z;
+        }
+    } else {
+        // Hide behind walls or stay still
+        ai.state = 'hide';
+        if (ai.thinkTimer <= 0) {
+            ai.thinkTimer = 3000 + Math.random() * 3000;
+            // Find a good hiding spot
+            const hidingSpot = findHidingSpot();
+            if (hidingSpot) {
+                ai.targetX = hidingSpot.x;
+                ai.targetZ = hidingSpot.z;
+            }
+        }
+    }
+
+    // Move toward target (hider is slower)
+    moveAIToward(ai.targetX, ai.targetZ, CONFIG.HIDER_SPEED, deltaTime);
+}
+
+function canAISeePoint(px, pz) {
+    // Check if AI (opponent) can see a point
+    const dx = px - state.opponent.x;
+    const dz = pz - state.opponent.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    if (dist > CONFIG.SEEKER_VIEW_RANGE) return false;
+
+    const angleToPoint = Math.atan2(dz, dx);
+    let angleDiff = angleToPoint - state.opponent.angle;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+    if (Math.abs(angleDiff) > CONFIG.SEEKER_VIEW_ANGLE) return false;
+
+    // Check wall occlusion
+    return !isWallBetween(state.opponent.x, state.opponent.z, px, pz);
+}
+
+function canSeekerSeePoint(px, pz) {
+    // Check if player (seeker) can see a point
+    const dx = px - state.player.x;
+    const dz = pz - state.player.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    if (dist > CONFIG.SEEKER_VIEW_RANGE) return false;
+
+    const angleToPoint = Math.atan2(dz, dx);
+    let angleDiff = angleToPoint - state.player.angle;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+    if (Math.abs(angleDiff) > CONFIG.SEEKER_VIEW_ANGLE) return false;
+
+    return !isWallBetween(state.player.x, state.player.z, px, pz);
+}
+
+function isWallBetween(x1, z1, x2, z2) {
+    for (const wall of currentBoard.walls) {
+        if (lineIntersectsRect(x1, z1, x2, z2, wall.x, wall.z, wall.w, wall.d)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function moveAIToward(targetX, targetZ, speed, deltaTime) {
+    const dx = targetX - state.opponent.x;
+    const dz = targetZ - state.opponent.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    if (dist < 1) return; // Close enough
+
+    // Normalize direction
+    const dirX = dx / dist;
+    const dirZ = dz / dist;
+
+    // Update angle to face movement direction
+    state.opponent.angle = Math.atan2(dirZ, dirX);
+
+    // Move
+    let newX = state.opponent.x + dirX * speed;
+    let newZ = state.opponent.z + dirZ * speed;
+
+    // Arena bounds
+    const distFromCenter = Math.sqrt(newX * newX + newZ * newZ);
+    if (distFromCenter > CONFIG.ARENA_RADIUS - CONFIG.PLAYER_RADIUS) {
+        const angle = Math.atan2(newZ, newX);
+        newX = Math.cos(angle) * (CONFIG.ARENA_RADIUS - CONFIG.PLAYER_RADIUS);
+        newZ = Math.sin(angle) * (CONFIG.ARENA_RADIUS - CONFIG.PLAYER_RADIUS);
+    }
+
+    // Wall collisions for AI
+    const collision = checkAIWallCollision(newX, newZ);
+    if (!collision.x) state.opponent.x = newX;
+    if (!collision.z) state.opponent.z = newZ;
+}
+
+function checkAIWallCollision(x, z) {
+    const result = { x: false, z: false };
+    const r = CONFIG.PLAYER_RADIUS;
+
+    for (const wall of currentBoard.walls) {
+        const wx = wall.x;
+        const wz = wall.z;
+        const ww = wall.w;
+        const wd = wall.d;
+
+        if (x + r > wx && x - r < wx + ww &&
+            state.opponent.z + r > wz && state.opponent.z - r < wz + wd) {
+            result.x = true;
+        }
+        if (state.opponent.x + r > wx && state.opponent.x - r < wx + ww &&
+            z + r > wz && z - r < wz + wd) {
+            result.z = true;
+        }
+    }
+    return result;
+}
+
+function findNearestWallForCover() {
+    let nearest = null;
+    let nearestDist = Infinity;
+
+    for (const wall of currentBoard.walls) {
+        // Find point on opposite side of wall from seeker
+        const wallCenterX = wall.x + wall.w / 2;
+        const wallCenterZ = wall.z + wall.d / 2;
+
+        const angleFromSeeker = Math.atan2(
+            wallCenterZ - state.player.z,
+            wallCenterX - state.player.x
+        );
+
+        // Point on far side of wall from seeker
+        const coverX = wallCenterX + Math.cos(angleFromSeeker) * (wall.w / 2 + 3);
+        const coverZ = wallCenterZ + Math.sin(angleFromSeeker) * (wall.d / 2 + 3);
+
+        const dist = Math.sqrt(
+            Math.pow(coverX - state.opponent.x, 2) +
+            Math.pow(coverZ - state.opponent.z, 2)
+        );
+
+        if (dist < nearestDist) {
+            nearestDist = dist;
+            nearest = { x: coverX, z: coverZ };
+        }
+    }
+
+    return nearest;
+}
+
+function findHidingSpot() {
+    // Find a spot behind a wall that the seeker can't see
+    let bestSpot = null;
+    let bestScore = -Infinity;
+
+    for (const wall of currentBoard.walls) {
+        const wallCenterX = wall.x + wall.w / 2;
+        const wallCenterZ = wall.z + wall.d / 2;
+
+        // Try several points around the wall
+        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+            const testX = wallCenterX + Math.cos(angle) * (Math.max(wall.w, wall.d) / 2 + 3);
+            const testZ = wallCenterZ + Math.sin(angle) * (Math.max(wall.w, wall.d) / 2 + 3);
+
+            // Check if within arena
+            if (Math.sqrt(testX * testX + testZ * testZ) > CONFIG.ARENA_RADIUS - 3) continue;
+
+            // Score based on: distance from seeker, wall between us and seeker
+            const distFromSeeker = Math.sqrt(
+                Math.pow(testX - state.player.x, 2) +
+                Math.pow(testZ - state.player.z, 2)
+            );
+
+            const hasWallCover = isWallBetween(state.player.x, state.player.z, testX, testZ);
+            const distFromCurrent = Math.sqrt(
+                Math.pow(testX - state.opponent.x, 2) +
+                Math.pow(testZ - state.opponent.z, 2)
+            );
+
+            let score = distFromSeeker * 0.5;
+            if (hasWallCover) score += 50;
+            score -= distFromCurrent * 0.3; // Prefer closer spots
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestSpot = { x: testX, z: testZ };
+            }
+        }
+    }
+
+    return bestSpot;
+}
+
+// ==========================================
 // Render Loop
 // ==========================================
 
@@ -1004,6 +1373,7 @@ function animate(currentTime = 0) {
     lastTime = currentTime;
 
     updatePlayer(deltaTime);
+    updateAI(deltaTime);
     updateScene();
     render();
 
@@ -1036,7 +1406,7 @@ function updateScene() {
     if (playerMesh) {
         playerMesh.position.set(state.player.x, 0, state.player.z);
         // Rotate to face walking direction (model faces +Z by default)
-        playerMesh.rotation.y = -state.player.angle;
+        playerMesh.rotation.y = -state.player.angle + Math.PI / 2;
 
         // Play/pause walking animation based on movement
         if (playerMesh.userData.walkAction) {
@@ -1068,7 +1438,7 @@ function updateScene() {
 
         opponentMesh.position.set(state.opponent.x, 0, state.opponent.z);
         // Rotate to face walking direction
-        opponentMesh.rotation.y = -state.opponent.angle;
+        opponentMesh.rotation.y = -state.opponent.angle + Math.PI / 2;
 
         // Play/pause walking animation for opponent
         if (opponentMesh.userData.walkAction) {
@@ -1199,9 +1569,29 @@ function initMobileControls() {
 // Initialization
 // ==========================================
 
+function startSoloGame() {
+    state.isSoloMode = true;
+    state.isHost = true;
+    state.role = Math.random() < 0.5 ? 'seeker' : 'hider';
+
+    // Reset AI state
+    state.ai = {
+        targetX: 0,
+        targetZ: 0,
+        lastSeenPlayer: null,
+        patrolAngle: Math.random() * Math.PI * 2,
+        thinkTimer: 0,
+        state: 'patrol'
+    };
+
+    currentBoardIndex = 0;
+    startGame();
+}
+
 function init() {
     initThreeJS();
 
+    elements.soloBtn.addEventListener('click', startSoloGame);
     elements.createBtn.addEventListener('click', createGame);
     elements.joinBtn.addEventListener('click', joinGame);
     elements.joinCode.addEventListener('keypress', (e) => {
@@ -1220,13 +1610,31 @@ function init() {
     });
 
     elements.playAgainBtn.addEventListener('click', () => {
-        if (state.conn && state.conn.open && state.isHost) {
+        if (state.isSoloMode) {
+            // Solo mode: advance to next board with swapped role
+            currentBoardIndex = (currentBoardIndex + 1) % BOARDS.length;
+            state.role = state.role === 'seeker' ? 'hider' : 'seeker';
+            state.ai.lastSeenPlayer = null;
+            state.ai.thinkTimer = 0;
+            startGame();
+        } else if (state.conn && state.conn.open && state.isHost) {
             advanceToNextBoard();
         }
     });
 
     elements.menuBtn.addEventListener('click', () => {
         if (state.peer) state.peer.destroy();
+        state.isSoloMode = false;
+        state.gameStarted = false;
+        state.gameOver = false;
+        showScreen('menu');
+    });
+
+    elements.homeBtn.addEventListener('click', () => {
+        if (state.peer) state.peer.destroy();
+        state.isSoloMode = false;
+        state.gameStarted = false;
+        state.gameOver = false;
         showScreen('menu');
     });
 
@@ -1234,5 +1642,89 @@ function init() {
     document.addEventListener('keyup', handleKeyUp);
     initMobileControls();
 }
+
+// ==========================================
+// Character Preview on Homepage
+// ==========================================
+
+let previewScene, previewCamera, previewRenderer, previewMixer, previewCharacter;
+
+function initCharacterPreview() {
+    const container = document.getElementById('character-preview');
+    if (!container) return;
+
+    // Create scene
+    previewScene = new THREE.Scene();
+    previewScene.background = null; // Transparent background
+
+    // Camera
+    previewCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+    previewCamera.position.set(0, 3, 6);
+    previewCamera.lookAt(0, 1.5, 0);
+
+    // Renderer
+    previewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    previewRenderer.setSize(200, 200);
+    previewRenderer.setPixelRatio(window.devicePixelRatio);
+    container.appendChild(previewRenderer.domElement);
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    previewScene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(5, 10, 5);
+    previewScene.add(directionalLight);
+
+    // Load character
+    const loader = new THREE.GLTFLoader();
+    loader.load('images/Characters/Meshy_AI_biped/Meshy_AI_Animation_Walking_withSkin.glb',
+        (gltf) => {
+            previewCharacter = gltf.scene;
+            previewCharacter.scale.set(2, 2, 2);
+            previewCharacter.position.set(0, 0, 0);
+
+            // Apply gold tint
+            previewCharacter.traverse((child) => {
+                if (child.isMesh && child.material) {
+                    child.material = child.material.clone();
+                    child.material.color.setHex(0xe5c644);
+                }
+            });
+
+            previewScene.add(previewCharacter);
+
+            // Setup animation
+            if (gltf.animations && gltf.animations.length > 0) {
+                previewMixer = new THREE.AnimationMixer(previewCharacter);
+                const action = previewMixer.clipAction(gltf.animations[0]);
+                action.setLoop(THREE.LoopRepeat, Infinity);
+                action.play();
+            }
+
+            animatePreview();
+        }
+    );
+}
+
+function animatePreview() {
+    requestAnimationFrame(animatePreview);
+
+    if (previewMixer) {
+        previewMixer.update(0.016);
+    }
+
+    // Slowly rotate character
+    if (previewCharacter) {
+        previewCharacter.rotation.y += 0.01;
+    }
+
+    if (previewRenderer && previewScene && previewCamera) {
+        previewRenderer.render(previewScene, previewCamera);
+    }
+}
+
+// Initialize preview when page loads
+setTimeout(initCharacterPreview, 100);
 
 init();
