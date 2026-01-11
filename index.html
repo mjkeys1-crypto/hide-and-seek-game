@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Hide & Seek Online</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="menu-screen" class="screen active">
+        <h1>Hide & Seek</h1>
+        <p class="subtitle">Two-Player Online Game</p>
+
+        <div class="menu-options">
+            <button id="create-btn" class="btn primary">Create Game</button>
+            <div class="divider">or</div>
+            <input type="text" id="join-code" placeholder="Enter code" maxlength="4">
+            <button id="join-btn" class="btn secondary">Join Game</button>
+        </div>
+
+        <div id="connection-status" class="status"></div>
+    </div>
+
+    <div id="waiting-screen" class="screen">
+        <h2>Waiting for opponent...</h2>
+        <div class="room-code-display">
+            <p>Share this code:</p>
+            <div id="room-code" class="code"></div>
+            <button id="copy-code" class="btn small">Copy</button>
+        </div>
+        <button id="cancel-btn" class="btn secondary">Cancel</button>
+    </div>
+
+    <div id="game-screen" class="screen">
+        <div id="game-ui">
+            <div id="role-display"></div>
+            <div id="timer-display"></div>
+            <div id="ability-display">
+                <div id="ability-bar">
+                    <div id="ability-fill"></div>
+                </div>
+                <span id="ability-text">BOOST [SPACE]</span>
+            </div>
+            <div id="controls-hint">WASD or Arrow Keys to move</div>
+        </div>
+        <canvas id="game-canvas"></canvas>
+
+        <!-- Mobile Controls -->
+        <div id="mobile-controls">
+            <div id="joystick-zone">
+                <div id="joystick-base">
+                    <div id="joystick-stick"></div>
+                </div>
+            </div>
+            <button id="boost-btn">BOOST</button>
+        </div>
+    </div>
+
+    <div id="result-screen" class="screen">
+        <h2 id="result-title"></h2>
+        <p id="result-message"></p>
+        <button id="play-again-btn" class="btn primary">Play Again</button>
+        <button id="menu-btn" class="btn secondary">Main Menu</button>
+    </div>
+
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://unpkg.com/three@0.140.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.140.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://unpkg.com/three@0.140.0/examples/js/utils/SkeletonUtils.js"></script>
+    <script src="game3d.js?v=8"></script>
+</body>
+</html>
