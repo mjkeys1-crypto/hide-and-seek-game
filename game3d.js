@@ -802,6 +802,15 @@ let walkTime = 0;
 let clock = new THREE.Clock();
 let currentPlayerModel = null; // Track which model is active for seeker
 
+// Vision cone system for seeker
+let visionConeLight = null;
+let visionConeMesh = null;
+let visionConeTarget = null;
+let ambientLightRef = null;
+let directionalLightRef = null;
+let fillLightRef = null;
+let isVisionConeActive = false;
+
 function initThreeJS() {
     // Scene - fully lit environment, no darkness
     scene = new THREE.Scene();
@@ -823,6 +832,7 @@ function initThreeJS() {
     // Bright ambient lighting - fully lit environment
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     scene.add(ambientLight);
+    ambientLightRef = ambientLight;
 
     // Strong directional light (sun-like)
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -837,11 +847,13 @@ function initThreeJS() {
     directionalLight.shadow.camera.top = 60;
     directionalLight.shadow.camera.bottom = -60;
     scene.add(directionalLight);
+    directionalLightRef = directionalLight;
 
     // Secondary fill light for even lighting
     const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
     fillLight.position.set(-20, 40, -20);
     scene.add(fillLight);
+    fillLightRef = fillLight;
 
     // Load all character models
     loadSeekerModel();
@@ -852,6 +864,178 @@ function initThreeJS() {
 
     // Window resize
     window.addEventListener('resize', onWindowResize);
+}
+
+// ==========================================
+// Vision Cone System for Seeker
+// ==========================================
+
+function setupVisionCone() {
+    // Remove existing vision cone if any
+    if (visionConeLight) {
+        scene.remove(visionConeLight);
+        scene.remove(visionConeTarget);
+    }
+    if (visionConeMesh) {
+        scene.remove(visionConeMesh);
+    }
+
+    // Create spotlight for vision cone illumination
+    // Angle matches CONFIG.SEEKER_VIEW_ANGLE (72 degrees = Math.PI / 2.5)
+    const coneAngle = CONFIG.SEEKER_VIEW_ANGLE; // ~72 degrees half-angle
+    visionConeLight = new THREE.SpotLight(0xffffee, 4, CONFIG.SEEKER_VIEW_RANGE + 10, coneAngle, 0.2, 0.8);
+    visionConeLight.castShadow = true;
+    visionConeLight.shadow.mapSize.width = 1024;
+    visionConeLight.shadow.mapSize.height = 1024;
+
+    // Target for spotlight direction
+    visionConeTarget = new THREE.Object3D();
+    visionConeLight.target = visionConeTarget;
+
+    scene.add(visionConeLight);
+    scene.add(visionConeTarget);
+
+    // Create visible cone mesh for visual feedback
+    const coneLength = CONFIG.SEEKER_VIEW_RANGE;
+    const coneRadius = Math.tan(coneAngle) * coneLength;
+    const coneGeometry = new THREE.ConeGeometry(coneRadius, coneLength, 32, 1, true);
+    const coneMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffff66,
+        transparent: true,
+        opacity: 0.12,
+        side: THREE.DoubleSide,
+        depthWrite: false
+    });
+    visionConeMesh = new THREE.Mesh(coneGeometry, coneMaterial);
+    visionConeMesh.renderOrder = 999; // Render on top
+    scene.add(visionConeMesh);
+
+    // Add edge glow ring at cone base (at player position)
+    const glowGeometry = new THREE.RingGeometry(0.3, 0.8, 32);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffff00,
+        transparent: true,
+        opacity: 0.4,
+        side: THREE.DoubleSide
+    });
+    const glowRing = new THREE.Mesh(glowGeometry, glowMaterial);
+    glowRing.rotation.x = -Math.PI / 2;
+    glowRing.position.y = 0.1;
+    visionConeMesh.userData.glowRing = glowRing;
+    scene.add(glowRing);
+}
+
+function activateVisionCone() {
+    if (isVisionConeActive) return;
+    isVisionConeActive = true;
+
+    setupVisionCone();
+
+    // Dim ambient lighting significantly for seeker
+    if (ambientLightRef) ambientLightRef.intensity = 0.15;
+    if (directionalLightRef) directionalLightRef.intensity = 0.2;
+    if (fillLightRef) fillLightRef.intensity = 0.1;
+
+    // Darken scene background
+    scene.background = new THREE.Color(0x1a1a2e);
+
+    // Dim all wall materials outside cone (they'll be lit by spotlight when in view)
+    wallMeshes.forEach(mesh => {
+        if (mesh.material) {
+            mesh.userData.originalEmissive = mesh.material.emissive ? mesh.material.emissive.clone() : new THREE.Color(0x000000);
+            mesh.userData.originalEmissiveIntensity = mesh.material.emissiveIntensity || 0;
+            // Add slight emissive so walls are visible but dim outside cone
+            mesh.material.emissive = new THREE.Color(0x222233);
+            mesh.material.emissiveIntensity = 0.3;
+        }
+    });
+
+    // Dim floor
+    if (floorMesh && floorMesh.material) {
+        floorMesh.userData.originalColor = floorMesh.material.color.clone();
+        floorMesh.material.emissive = new THREE.Color(0x111122);
+        floorMesh.material.emissiveIntensity = 0.2;
+    }
+}
+
+function deactivateVisionCone() {
+    if (!isVisionConeActive) return;
+    isVisionConeActive = false;
+
+    // Remove vision cone elements
+    if (visionConeLight) {
+        scene.remove(visionConeLight);
+        scene.remove(visionConeTarget);
+        visionConeLight = null;
+        visionConeTarget = null;
+    }
+    if (visionConeMesh) {
+        // Remove glow ring
+        if (visionConeMesh.userData.glowRing) {
+            scene.remove(visionConeMesh.userData.glowRing);
+        }
+        scene.remove(visionConeMesh);
+        visionConeMesh = null;
+    }
+
+    // Restore normal lighting
+    if (ambientLightRef) ambientLightRef.intensity = 0.7;
+    if (directionalLightRef) directionalLightRef.intensity = 1.2;
+    if (fillLightRef) fillLightRef.intensity = 0.5;
+
+    // Restore scene background
+    scene.background = new THREE.Color(0x87CEEB);
+
+    // Restore wall materials
+    wallMeshes.forEach(mesh => {
+        if (mesh.material && mesh.userData.originalEmissive) {
+            mesh.material.emissive = mesh.userData.originalEmissive;
+            mesh.material.emissiveIntensity = mesh.userData.originalEmissiveIntensity || 0;
+        }
+    });
+
+    // Restore floor
+    if (floorMesh && floorMesh.material && floorMesh.userData.originalColor) {
+        floorMesh.material.emissive = new THREE.Color(0x000000);
+        floorMesh.material.emissiveIntensity = 0;
+    }
+}
+
+function updateVisionCone() {
+    if (!isVisionConeActive || !visionConeLight || !visionConeMesh) return;
+
+    const playerX = state.player.x;
+    const playerZ = state.player.z;
+    const playerAngle = state.player.angle;
+
+    // Position spotlight at player's head height
+    visionConeLight.position.set(playerX, 3, playerZ);
+
+    // Point spotlight in facing direction
+    const targetDistance = CONFIG.SEEKER_VIEW_RANGE;
+    const targetX = playerX + Math.cos(playerAngle) * targetDistance;
+    const targetZ = playerZ + Math.sin(playerAngle) * targetDistance;
+    visionConeTarget.position.set(targetX, 1, targetZ);
+
+    // Update cone mesh position and rotation
+    // Cone points along -Y by default, we need to rotate it to point forward
+    visionConeMesh.position.set(playerX, 2, playerZ);
+
+    // Rotate cone to point in facing direction
+    // First rotate 90 degrees on X to make it horizontal, then rotate on Y for direction
+    visionConeMesh.rotation.set(0, 0, 0);
+    visionConeMesh.rotation.x = Math.PI / 2; // Make horizontal
+    visionConeMesh.rotation.z = -playerAngle + Math.PI; // Point in facing direction
+
+    // Offset cone so base is at player
+    const coneLength = CONFIG.SEEKER_VIEW_RANGE;
+    visionConeMesh.position.x += Math.cos(playerAngle) * (coneLength / 2);
+    visionConeMesh.position.z += Math.sin(playerAngle) * (coneLength / 2);
+
+    // Update glow ring position at player feet
+    if (visionConeMesh.userData.glowRing) {
+        visionConeMesh.userData.glowRing.position.set(playerX, 0.1, playerZ);
+    }
 }
 
 function loadSeekerModel() {
@@ -2786,6 +2970,13 @@ function startGame() {
     createDustParticles();
     createCharacterGlow();
 
+    // Activate vision cone for seeker, deactivate for hider
+    if (state.role === 'seeker') {
+        activateVisionCone();
+    } else {
+        deactivateVisionCone();
+    }
+
     showScreen('game');
 
     // Show board announcement
@@ -2836,6 +3027,9 @@ function updateTimerDisplay() {
 function endGame(reason) {
     state.gameOver = true;
     state.gameStarted = false;
+
+    // Deactivate vision cone
+    deactivateVisionCone();
 
     // Stop heartbeat sound
     SoundManager.stopHeartbeat();
@@ -3956,8 +4150,11 @@ function updateScene() {
     updateDustParticles();
     updateCharacterGlows();
 
-    // Set background based on theme (don't override themed backgrounds)
-    if (!currentBoard.style.sky) {
+    // Update vision cone for seeker
+    updateVisionCone();
+
+    // Set background based on theme (don't override if vision cone active or themed)
+    if (!currentBoard.style.sky && !isVisionConeActive) {
         scene.background = new THREE.Color(0x87CEEB);
     }
 }
