@@ -189,7 +189,8 @@ const SKINS = {
         stripePriceId: null, // Free - no Stripe product needed
         owned: true,
         path: 'images/Characters/Meshy_AI_biped/Meshy_AI_Animation_Walking_withSkin.glb',
-        color: '#4a90a4'
+        color: '#4a90a4',
+        rotationOffset: Math.PI
     },
     default_hider: {
         id: 'default_hider',
@@ -200,7 +201,8 @@ const SKINS = {
         stripePriceId: null, // Free - no Stripe product needed
         owned: true,
         path: 'images/Characters/Meshy_AI_biped/kid 5 - run.glb',
-        color: '#a44a90'
+        color: '#a44a90',
+        rotationOffset: Math.PI
     },
     ghost: {
         id: 'ghost',
@@ -212,7 +214,8 @@ const SKINS = {
         owned: false,
         path: 'images/Characters/Upgrade Store Characters/compressed/ghost_running.glb',
         color: '#e8e8ff',
-        scale: 8 // Bigger spooky ghost!
+        scale: 8, // Bigger spooky ghost!
+        rotationOffset: Math.PI
     },
     robot: {
         id: 'robot',
@@ -224,7 +227,8 @@ const SKINS = {
         owned: false,
         path: 'images/Characters/Upgrade Store Characters/compressed/robot_running.glb',
         color: '#a0a0a0',
-        scale: 7 // Premium robot - nice and chunky
+        scale: 7, // Premium robot - nice and chunky
+        rotationOffset: Math.PI
     },
     firefighter: {
         id: 'firefighter',
@@ -236,7 +240,8 @@ const SKINS = {
         owned: false,
         path: 'images/Characters/Upgrade Store Characters/compressed/firefighter_running.glb',
         color: '#ff6b35',
-        scale: 6.5
+        scale: 6.5,
+        rotationOffset: Math.PI
     },
     dark_warrior: {
         id: 'dark_warrior',
@@ -248,7 +253,8 @@ const SKINS = {
         owned: false,
         path: 'images/Characters/Upgrade Store Characters/compressed/dark_warrior_running.glb',
         color: '#2a2a3a',
-        scale: 6.5
+        scale: 6.5,
+        rotationOffset: Math.PI
     },
     cyber_girl: {
         id: 'cyber_girl',
@@ -260,7 +266,8 @@ const SKINS = {
         owned: false,
         path: 'images/Characters/Upgrade Store Characters/compressed/cyber_girl_running.glb',
         color: '#ff00ff',
-        scale: 6
+        scale: 6,
+        rotationOffset: Math.PI
     },
     cyber_warrior: {
         id: 'cyber_warrior',
@@ -272,7 +279,8 @@ const SKINS = {
         owned: false,
         path: 'images/Characters/Upgrade Store Characters/compressed/cyber_warrior_running.glb',
         color: '#00ffff',
-        scale: 7 // Premium warrior
+        scale: 7, // Premium warrior
+        rotationOffset: Math.PI
     },
     penguin: {
         id: 'penguin',
@@ -284,8 +292,7 @@ const SKINS = {
         owned: false,
         path: 'images/Characters/Upgrade Store Characters/compressed/penguin_running.glb',
         color: '#1a1a2e',
-        scale: 6,
-        rotationOffset: Math.PI  // Model faces backwards
+        scale: 6
     },
     mushroom_man: {
         id: 'mushroom_man',
@@ -298,8 +305,7 @@ const SKINS = {
         path: 'images/Characters/Upgrade Store Characters/compressed/mushroom_man_running.glb',
         celebrationPath: 'images/Characters/Upgrade Store Characters/compressed/mushroom_man_celebration.glb',
         color: '#8b4513',
-        scale: 6,
-        rotationOffset: Math.PI  // Model faces backwards, rotate 180 degrees
+        scale: 6
     },
     cat: {
         id: 'cat',
@@ -312,8 +318,7 @@ const SKINS = {
         path: 'images/Characters/Upgrade Store Characters/compressed/cat_running.glb',
         celebrationPath: 'images/Characters/Upgrade Store Characters/compressed/cat_celebration.glb',
         color: '#ff9966',
-        scale: 6,
-        rotationOffset: Math.PI  // Model faces backwards
+        scale: 6
     }
 };
 
@@ -1854,21 +1859,22 @@ document.addEventListener('touchstart', () => {
 const CONFIG = {
     ARENA_RADIUS: 40,
     PLAYER_RADIUS: 1.5,
-    HIDER_SPEED: 0.98,
-    SEEKER_SPEED: 1.17,
-    BOOST_SPEED: 1.95,
+    HIDER_SPEED: 0.25,
+    SEEKER_SPEED: 0.27,
+    BOOST_SPEED: 0.45,
     BOOST_DURATION: 1500,
     BOOST_COOLDOWN: 5000,
     SEEKER_VIEW_RANGE: 28,
-    SEEKER_VIEW_ANGLE: Math.PI / 2.5,
+    SEEKER_VIEW_ANGLE: Math.PI / 6,  // 30 degrees each side (60 degree total cone) - matches visual cone
     GAME_DURATION: 90,
     CATCH_DISTANCE: 5,
     WALL_HEIGHT: 4,
-    // Collectibles
-    COIN_COUNT: 2,
-    MULTIPLIER_COUNT: 1,  // Number of 3x multiplier coins per board
+    // Collectibles - more coins in risky spots to encourage hider movement
+    COIN_COUNT: 5,
+    MULTIPLIER_COUNT: 2,  // Number of 3x multiplier coins per board
     COIN_RADIUS: 0.8,
-    POWERUP_SPAWN_INTERVAL: 10000,
+    POWERUP_SPAWN_INTERVAL: 7000,  // Spawn powerups more frequently
+    BONUS_COIN_INTERVAL: 12000,   // Spawn bonus coins in center periodically
     POWERUP_RADIUS: 1.2,
     INVISIBILITY_DURATION: 3000,
     SPEED_BOOST_DURATION: 4000,
@@ -3480,9 +3486,9 @@ function initThreeJS() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB); // Light sky blue background
 
-    // Camera - top-down angled view
+    // Camera - top-down angled view (zoomed out 15% for full board visibility)
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 50, 30);
+    camera.position.set(0, 58, 35);
     camera.lookAt(0, 0, 0);
 
     // Renderer
@@ -3545,21 +3551,10 @@ function setupVisionCone() {
         scene.remove(visionConeMesh);
     }
 
-    // Create spotlight for vision cone illumination
-    // Use a fixed visual angle for the cone display (not the gameplay angle which is wider)
-    const visualConeAngle = Math.PI / 6; // 30 degrees half-angle for visual cone (60 degree total FOV)
-    const gameplayAngle = CONFIG.SEEKER_VIEW_ANGLE; // Gameplay detection uses wider angle
-    visionConeLight = new THREE.SpotLight(0xffffee, 4, CONFIG.SEEKER_VIEW_RANGE + 10, visualConeAngle, 0.3, 0.8);
-    visionConeLight.castShadow = true;
-    visionConeLight.shadow.mapSize.width = 1024;
-    visionConeLight.shadow.mapSize.height = 1024;
-
-    // Target for spotlight direction
-    visionConeTarget = new THREE.Object3D();
-    visionConeLight.target = visionConeTarget;
-
-    scene.add(visionConeLight);
-    scene.add(visionConeTarget);
+    // No spotlight needed - the dimmed scene + visual cone mesh shows the field of view
+    // Spotlight was removed because it created unwanted lighting behind the character
+    visionConeLight = null;
+    visionConeTarget = null;
 
     // Create visible cone mesh for visual feedback
     // Use fixed dimensions that look good visually and stay consistent across all boards
@@ -3567,11 +3562,11 @@ function setupVisionCone() {
     const coneRadius = 12; // Fixed radius for consistent visual appearance
     const coneGeometry = new THREE.ConeGeometry(coneRadius, coneLength, 32, 1, true);
 
-    // IMPORTANT: Transform geometry so apex (point) is at origin, cone extends along +X
-    // ConeGeometry default: apex at +height/2, base at -height/2, cone pointing DOWN
+    // Transform geometry so apex is at origin, cone extends along -X axis
+    // ConeGeometry: apex at +height/2, base at -height/2, pointing UP (+Y)
     // Step 1: Translate so apex is at origin
     coneGeometry.translate(0, -coneLength / 2, 0);
-    // Step 2: Rotate so cone points along +X axis (playerAngle=0 is +X direction)
+    // Step 2: Rotate -90deg around Z, cone now points along -X axis
     coneGeometry.rotateZ(-Math.PI / 2);
 
     const coneMaterial = new THREE.MeshBasicMaterial({
@@ -3606,30 +3601,31 @@ function activateVisionCone() {
 
     setupVisionCone();
 
-    // Dim ambient lighting significantly for seeker
-    if (ambientLightRef) ambientLightRef.intensity = 0.15;
-    if (directionalLightRef) directionalLightRef.intensity = 0.2;
-    if (fillLightRef) fillLightRef.intensity = 0.1;
+    // Dim the scene outside vision cone - noticeable but still visible
+    // Spotlight will brighten the cone area by contrast
+    if (ambientLightRef) ambientLightRef.intensity = 0.35;
+    if (directionalLightRef) directionalLightRef.intensity = 0.4;
+    if (fillLightRef) fillLightRef.intensity = 0.15;
 
-    // Darken scene background
-    scene.background = new THREE.Color(0x1a1a2e);
+    // Darker background for contrast
+    scene.background = new THREE.Color(0x3a4a6a);
 
-    // Dim all wall materials outside cone (they'll be lit by spotlight when in view)
+    // Dim walls outside cone (spotlight brightens them when in view)
     wallMeshes.forEach(mesh => {
         if (mesh.material && mesh.material.emissive !== undefined) {
             mesh.userData.originalEmissive = mesh.material.emissive.clone();
             mesh.userData.originalEmissiveIntensity = mesh.material.emissiveIntensity || 0;
-            // Add slight emissive so walls are visible but dim outside cone
+            // Dim emissive so walls are visible but noticeably darker
             mesh.material.emissive = new THREE.Color(0x222233);
-            mesh.material.emissiveIntensity = 0.3;
+            mesh.material.emissiveIntensity = 0.2;
         }
     });
 
     // Dim floor
     if (floorMesh && floorMesh.material && floorMesh.material.emissive !== undefined) {
         floorMesh.userData.originalColor = floorMesh.material.color.clone();
-        floorMesh.material.emissive = new THREE.Color(0x111122);
-        floorMesh.material.emissiveIntensity = 0.2;
+        floorMesh.material.emissive = new THREE.Color(0x151520);
+        floorMesh.material.emissiveIntensity = 0.15;
     }
 }
 
@@ -3677,7 +3673,7 @@ function deactivateVisionCone() {
 }
 
 function updateVisionCone() {
-    if (!isVisionConeActive || !visionConeLight || !visionConeMesh) return;
+    if (!isVisionConeActive || !visionConeMesh) return;
 
     // Use playerMesh position if available, fallback to state.player
     // This ensures vision cone always follows the visible character
@@ -3685,26 +3681,18 @@ function updateVisionCone() {
     const playerZ = playerMesh ? playerMesh.position.z : state.player.z;
     const playerAngle = state.player.angle;
 
-    // Position spotlight at player position
-    visionConeLight.position.set(playerX, 3, playerZ);
-
-    // Point spotlight in facing direction
-    const targetDistance = CONFIG.SEEKER_VIEW_RANGE;
-    const targetX = playerX + Math.cos(playerAngle) * targetDistance;
-    const targetZ = playerZ + Math.sin(playerAngle) * targetDistance;
-    visionConeTarget.position.set(targetX, 1, targetZ);
-
     // Position cone mesh at player's face (apex is at origin due to geometry translation)
     // Add small offset in facing direction to place apex at front of character
     const faceOffset = 1.5;
-    const faceX = playerX + Math.cos(playerAngle) * faceOffset;
-    const faceZ = playerZ + Math.sin(playerAngle) * faceOffset;
+    const faceX = playerX + Math.sin(playerAngle) * faceOffset;
+    const faceZ = playerZ + Math.cos(playerAngle) * faceOffset;
     visionConeMesh.position.set(faceX, 2, faceZ);
 
-    // Rotate cone to point in facing direction
-    // Geometry is pre-rotated: apex at origin, cone extends along +X axis
-    // Just rotate around Y axis to match playerAngle (which uses cos for X, sin for Z)
-    visionConeMesh.rotation.set(0, playerAngle, 0);
+    // Rotate cone to point in facing direction (match character mesh rotation pattern)
+    // Add rotationOffset for skin-specific correction, and +PI/2 to compensate for cone geometry pointing -X
+    const selectedSkin = StoreManager.getSelectedSkin();
+    const rotationOffset = selectedSkin?.rotationOffset || 0;
+    visionConeMesh.rotation.set(0, playerAngle + rotationOffset + Math.PI / 2, 0);
 
     // Update glow ring position at player feet
     if (visionConeMesh.userData.glowRing) {
@@ -4030,6 +4018,66 @@ function reloadPlayerModels(onComplete) {
         return true; // Loading custom skin
     }
     return false; // Using default skin
+}
+
+// Reload AI model with a random skin different from the player's
+// Only used in solo mode
+function reloadAIModel(onComplete) {
+    const playerSkin = StoreManager.getSelectedSkin();
+    const aiSkin = getAISkin(playerSkin?.id || 'default_seeker');
+
+    console.log('Loading AI skin:', aiSkin.name, '(player has:', playerSkin?.name, ')');
+
+    const loader = new THREE.GLTFLoader();
+    loader.setDRACOLoader(dracoLoader);
+
+    const skinScale = aiSkin.scale || 6;
+
+    loader.load(aiSkin.path,
+        (gltf) => {
+            const newModel = gltf.scene;
+            newModel.scale.set(skinScale, skinScale, skinScale);
+            newModel.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            const newAnimations = gltf.animations || [];
+
+            // Store the rotation offset on the model for later use
+            newModel.userData.rotationOffset = aiSkin.rotationOffset || 0;
+
+            // AI plays the OPPOSITE role of the player
+            // If player is seeker, AI is hider (update hiderModel)
+            // If player is hider, AI is seeker (update seekerModel)
+            if (state.role === 'seeker') {
+                // Player is seeker, AI is hider
+                hiderModel = newModel;
+                if (newAnimations.length > 0) {
+                    hiderAnimations = newAnimations;
+                }
+                console.log('Applied AI skin to HIDER (AI)');
+            } else {
+                // Player is hider, AI is seeker
+                seekerModel = newModel;
+                if (newAnimations.length > 0) {
+                    seekerAnimations = newAnimations;
+                }
+                console.log('Applied AI skin to SEEKER (AI)');
+            }
+
+            console.log('AI skin loaded successfully!');
+            if (onComplete) onComplete();
+        },
+        (progress) => {},
+        (error) => {
+            console.error('Error loading AI skin:', error);
+            if (onComplete) onComplete();
+        }
+    );
+    return true;
 }
 
 function createArena() {
@@ -4631,13 +4679,105 @@ function getRandomSpawnPosition() {
     return { x: (Math.random() - 0.5) * 20, z: (Math.random() - 0.5) * 20 };
 }
 
+// Spawn in risky/exposed positions - center area and open spaces to encourage hider movement
+function getRiskySpawnPosition() {
+    let attempts = 0;
+    while (attempts < 50) {
+        // Prefer center/open areas - spawn within inner 60% of arena
+        const angle = Math.random() * Math.PI * 2;
+        const maxRadius = CONFIG.ARENA_RADIUS * 0.6;  // Inner 60% of arena
+        const radius = Math.random() * maxRadius;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+
+        // Check not inside a wall
+        let insideWall = false;
+        for (const wall of currentBoard.walls) {
+            if (x >= wall.x - 2 && x <= wall.x + wall.w + 2 &&
+                z >= wall.z - 2 && z <= wall.z + wall.d + 2) {
+                insideWall = true;
+                break;
+            }
+        }
+
+        if (!insideWall) {
+            return { x, z };
+        }
+        attempts++;
+    }
+    // Fallback to exact center
+    return { x: 0, z: 0 };
+}
+
+// Spawn bonus coin in the very center - high risk, high reward
+function spawnBonusCoin() {
+    // Remove any existing bonus coin
+    for (let i = state.collectibles.length - 1; i >= 0; i--) {
+        if (state.collectibles[i].type === 'bonus' && !state.collectibles[i].collected) {
+            if (state.collectibles[i].mesh) {
+                scene.remove(state.collectibles[i].mesh);
+            }
+            state.collectibles.splice(i, 1);
+        }
+    }
+
+    // Spawn in center area
+    const pos = { x: (Math.random() - 0.5) * 10, z: (Math.random() - 0.5) * 10 };
+    const bonusMesh = createBonusCoinMesh();
+    bonusMesh.position.set(pos.x, 2, pos.z);
+    scene.add(bonusMesh);
+    collectibleMeshes.push(bonusMesh);
+
+    state.collectibles.push({
+        type: 'bonus',
+        x: pos.x,
+        z: pos.z,
+        mesh: bonusMesh,
+        collected: false
+    });
+}
+
+function createBonusCoinMesh() {
+    const group = new THREE.Group();
+
+    // Larger golden coin with sparkle effect
+    const coinGeometry = new THREE.CylinderGeometry(1.2, 1.2, 0.3, 32);
+    const coinMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffd700,
+        metalness: 0.9,
+        roughness: 0.1,
+        emissive: 0xffa500,
+        emissiveIntensity: 0.3
+    });
+    const coin = new THREE.Mesh(coinGeometry, coinMaterial);
+    coin.rotation.x = Math.PI / 2;
+    group.add(coin);
+
+    // Outer glow ring
+    const glowGeometry = new THREE.TorusGeometry(1.5, 0.2, 8, 32);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffff00,
+        transparent: true,
+        opacity: 0.5
+    });
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    glow.rotation.x = Math.PI / 2;
+    group.add(glow);
+
+    group.userData.rotationSpeed = 0.04;
+    group.userData.bobOffset = Math.random() * Math.PI * 2;
+
+    return group;
+}
+
 function spawnCoins() {
     // Clear existing coins
     clearCollectibles();
 
-    // Spawn regular coins
+    // Spawn regular coins - use risky positions to encourage hider movement
     for (let i = 0; i < CONFIG.COIN_COUNT; i++) {
-        const pos = getRandomSpawnPosition();
+        // Most coins spawn in risky/exposed areas
+        const pos = getRiskySpawnPosition();
         const coinMesh = createCoinMesh();
         coinMesh.position.set(pos.x, 1.5, pos.z);
         scene.add(coinMesh);
@@ -4652,9 +4792,9 @@ function spawnCoins() {
         });
     }
 
-    // Spawn coin multipliers (3x coins)
+    // Spawn coin multipliers (3x coins) in risky center areas
     for (let i = 0; i < CONFIG.MULTIPLIER_COUNT; i++) {
-        const pos = getRandomSpawnPosition();
+        const pos = getRiskySpawnPosition();
         const multiplierMesh = createMultiplierMesh();
         multiplierMesh.position.set(pos.x, 1.5, pos.z);
         scene.add(multiplierMesh);
@@ -4668,6 +4808,9 @@ function spawnCoins() {
             collected: false
         });
     }
+
+    // Initialize bonus coin timer
+    state.lastBonusCoinSpawn = Date.now();
 }
 
 function spawnPowerup() {
@@ -4682,7 +4825,8 @@ function spawnPowerup() {
     }
 
     const powerupType = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
-    const pos = getRandomSpawnPosition();
+    // Spawn powerups in risky/exposed areas to encourage movement
+    const pos = getRiskySpawnPosition();
     const powerupMesh = createPowerupMesh(powerupType);
     powerupMesh.position.set(pos.x, 2, pos.z);
     scene.add(powerupMesh);
@@ -4729,12 +4873,85 @@ function checkCollectibleCollision(playerX, playerZ, isHider) {
             } else if (collectible.type === 'multiplier') {
                 // Both players can collect multipliers (gives 3 coins)
                 collectMultiplier(collectible, i);
+            } else if (collectible.type === 'bonus') {
+                // Both players can collect bonus coins (gives 5 coins!)
+                collectBonusCoin(collectible, i);
             } else if (collectible.type === 'powerup' && isHider) {
                 // Only hider can collect powerups
                 collectPowerup(collectible, i);
             }
         }
     }
+}
+
+function collectBonusCoin(collectible, index) {
+    state.coins += 5;
+    collectible.collected = true;
+
+    // Add 5 coins to persistent store
+    StoreManager.addCoins(5);
+
+    // Play coin sound (louder/special)
+    SoundManager.playCoinCollect();
+
+    // Show bonus notification
+    showBonusCoinNotification();
+
+    // Animate bonus coin collection
+    const mesh = collectible.mesh;
+    if (mesh) {
+        const startScale = mesh.scale.x;
+        const startY = mesh.position.y;
+        const duration = 500;
+        const startTime = Date.now();
+
+        const animateCollection = () => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+
+            mesh.scale.setScalar(startScale * (1 + progress * 2));
+            mesh.position.y = startY + progress * 5;
+            mesh.rotation.y += 0.3;
+
+            mesh.traverse(child => {
+                if (child.material) {
+                    child.material.opacity = 1 - progress;
+                    child.material.transparent = true;
+                }
+            });
+
+            if (progress < 1) {
+                requestAnimationFrame(animateCollection);
+            } else {
+                scene.remove(mesh);
+            }
+        };
+        animateCollection();
+    }
+
+    updateCoinUI();
+}
+
+function showBonusCoinNotification() {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: linear-gradient(135deg, #ffd700, #ffaa00);
+        color: #000;
+        padding: 20px 40px;
+        border-radius: 15px;
+        font-size: 28px;
+        font-weight: bold;
+        z-index: 1000;
+        animation: bonusPop 0.5s ease-out;
+        box-shadow: 0 0 30px rgba(255, 215, 0, 0.8);
+    `;
+    notification.textContent = '⭐ BONUS +5 COINS! ⭐';
+    document.body.appendChild(notification);
+    setTimeout(() => notification.remove(), 2000);
 }
 
 function collectCoin(collectible, index) {
@@ -4977,6 +5194,12 @@ function updatePowerupEffects() {
     // Spawn powerup periodically
     if (!state.gameOver && now - state.lastPowerupSpawn > CONFIG.POWERUP_SPAWN_INTERVAL) {
         spawnPowerup();
+    }
+
+    // Spawn bonus coin in center periodically - encourages hider to take risks
+    if (!state.gameOver && state.lastBonusCoinSpawn && now - state.lastBonusCoinSpawn > CONFIG.BONUS_COIN_INTERVAL) {
+        spawnBonusCoin();
+        state.lastBonusCoinSpawn = now;
     }
 }
 
@@ -7133,6 +7356,8 @@ function createPlayers() {
     // Create opponent mesh
     if (oppModel) {
         opponentMesh = THREE.SkeletonUtils.clone(oppModel);
+        // Copy rotation offset from source model
+        opponentMesh.userData.rotationOffset = oppModel.userData?.rotationOffset || 0;
         // Tint opponent based on their role (opposite of player)
         const opponentColor = playerIsSeeker ? 0x4dd0e1 : 0xe5c644;
         opponentMesh.traverse((child) => {
@@ -7575,19 +7800,44 @@ function startGame() {
     // Create 3D scene (arena first, players after skin loads)
     createArena();
 
-    // Function to finish setup after skin is ready
+    // Function to finish setup after skins are ready
     const finishPlayerSetup = () => {
         createPlayers();
         createDustParticles();
         createCharacterGlow();
     };
 
-    // Reload player models with selected skin - wait for it before creating players
-    const isLoadingCustomSkin = reloadPlayerModels(finishPlayerSetup);
+    // Track loading state for both player and AI skins
+    let playerSkinLoaded = false;
+    let aiSkinLoaded = false;
+    const needsAISkin = state.isSoloMode;
 
-    // If not loading a custom skin, create players immediately
-    if (!isLoadingCustomSkin) {
-        finishPlayerSetup();
+    const checkAllSkinsLoaded = () => {
+        if (playerSkinLoaded && (aiSkinLoaded || !needsAISkin)) {
+            finishPlayerSetup();
+        }
+    };
+
+    // Reload player models with selected skin
+    const isLoadingPlayerSkin = reloadPlayerModels(() => {
+        playerSkinLoaded = true;
+        checkAllSkinsLoaded();
+    });
+
+    // In solo mode, also load a different skin for the AI
+    if (needsAISkin) {
+        reloadAIModel(() => {
+            aiSkinLoaded = true;
+            checkAllSkinsLoaded();
+        });
+    } else {
+        aiSkinLoaded = true; // Not needed, mark as done
+    }
+
+    // If not loading custom player skin, mark as done immediately
+    if (!isLoadingPlayerSkin) {
+        playerSkinLoaded = true;
+        checkAllSkinsLoaded();
     }
 
     // Initialize collectibles
@@ -7607,10 +7857,6 @@ function startGame() {
     } else {
         deactivateVisionCone();
     }
-
-    // NOTE: Player model loading is handled by reloadPlayerModels() above
-    // The opponent uses the default model loaded during initialization
-    // This prevents race conditions from multiple async loaders
 
     showScreen('game');
 
@@ -8256,12 +8502,7 @@ function updatePlayer(deltaTime) {
     }
 
     if (dx !== 0 || dz !== 0) {
-        let angle = Math.atan2(dz, dx);
-        // Reverse cone direction for left/right movement (flip 180 degrees)
-        if (Math.abs(dx) > Math.abs(dz)) {
-            angle = angle + Math.PI;
-        }
-        state.player.angle = angle;
+        state.player.angle = Math.atan2(dx, dz);
     }
 
     let baseSpeed = state.role === 'seeker' ? CONFIG.SEEKER_SPEED : CONFIG.HIDER_SPEED;
@@ -8470,7 +8711,7 @@ function isPointVisible(px, pz) {
 
     if (dist > CONFIG.SEEKER_VIEW_RANGE) return false;
 
-    const angleToPoint = Math.atan2(dz, dx);
+    const angleToPoint = Math.atan2(dx, dz);  // Match player angle coordinate system
     let angleDiff = angleToPoint - state.player.angle;
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
     while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
@@ -8636,8 +8877,8 @@ function updateSeekerAI(deltaTime) {
                     console.log('AI used portal strategically!');
                     return;
                 } else {
-                    // Navigate to portal
-                    moveAIToward(bestPortal.x, bestPortal.z, CONFIG.SEEKER_SPEED, deltaTime);
+                    // Navigate to portal (AI seeker 20% slower)
+                    moveAIToward(bestPortal.x, bestPortal.z, CONFIG.SEEKER_SPEED * 0.8, deltaTime);
                     return;
                 }
             }
@@ -8686,7 +8927,7 @@ function updateSeekerAI(deltaTime) {
         if (d < 8 || !wallBlocking) {
             ai.explorationTarget = null;
         } else {
-            moveAIToward(ai.explorationTarget.x, ai.explorationTarget.z, CONFIG.SEEKER_SPEED, deltaTime);
+            moveAIToward(ai.explorationTarget.x, ai.explorationTarget.z, CONFIG.SEEKER_SPEED * 0.8, deltaTime);
             return;
         }
     }
@@ -8717,8 +8958,8 @@ function updateSeekerAI(deltaTime) {
             ai.waypointTime = 0;
         } else {
             ai.lastDirectAngle = Math.atan2(toWaypointZ, toWaypointX);
-            // AI seeker uses full seeker speed when navigating
-            moveAIToward(ai.waypoint.x, ai.waypoint.z, CONFIG.SEEKER_SPEED * 0.95, deltaTime);
+            // AI seeker 20% slower when navigating
+            moveAIToward(ai.waypoint.x, ai.waypoint.z, CONFIG.SEEKER_SPEED * 0.76, deltaTime);
             return;
         }
     }
@@ -8731,8 +8972,8 @@ function updateSeekerAI(deltaTime) {
             const toWaypointX = ai.waypoint.x - aiX;
             const toWaypointZ = ai.waypoint.z - aiZ;
             ai.lastDirectAngle = Math.atan2(toWaypointZ, toWaypointX);
-            // AI seeker uses full seeker speed when navigating
-            moveAIToward(ai.waypoint.x, ai.waypoint.z, CONFIG.SEEKER_SPEED * 0.95, deltaTime);
+            // AI seeker 20% slower when navigating
+            moveAIToward(ai.waypoint.x, ai.waypoint.z, CONFIG.SEEKER_SPEED * 0.76, deltaTime);
             return;
         }
     }
@@ -8749,8 +8990,8 @@ function updateSeekerAI(deltaTime) {
     ai.targetX = playerX + playerVelX * predictionTime;
     ai.targetZ = playerZ + playerVelZ * predictionTime;
 
-    // AI seeker uses full seeker speed when chasing
-    moveAIToward(ai.targetX, ai.targetZ, CONFIG.SEEKER_SPEED, deltaTime);
+    // AI seeker 20% slower when chasing
+    moveAIToward(ai.targetX, ai.targetZ, CONFIG.SEEKER_SPEED * 0.8, deltaTime);
 }
 
 // Try to use a portal to get unstuck - returns true if teleported
@@ -9042,7 +9283,7 @@ function canAISeePoint(px, pz) {
 
     if (dist > CONFIG.SEEKER_VIEW_RANGE) return false;
 
-    const angleToPoint = Math.atan2(dz, dx);
+    const angleToPoint = Math.atan2(dx, dz);  // Match player angle coordinate system
     let angleDiff = angleToPoint - state.opponent.angle;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
@@ -9061,7 +9302,7 @@ function canSeekerSeePoint(px, pz) {
 
     if (dist > CONFIG.SEEKER_VIEW_RANGE) return false;
 
-    const angleToPoint = Math.atan2(dz, dx);
+    const angleToPoint = Math.atan2(dx, dz);  // Match player angle coordinate system
     let angleDiff = angleToPoint - state.player.angle;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
@@ -9092,7 +9333,7 @@ function moveAIToward(targetX, targetZ, speed, deltaTime) {
     const dirZ = dz / dist;
 
     // Update angle to face movement direction
-    state.opponent.angle = Math.atan2(dirZ, dirX);
+    state.opponent.angle = Math.atan2(dirX, dirZ);
 
     // Move
     let newX = state.opponent.x + dirX * speed;
@@ -9317,11 +9558,11 @@ function updateScene() {
     // Update player mesh with walking animation
     if (playerMesh) {
         playerMesh.position.set(state.player.x, 0, state.player.z);
-        // Rotate to face walking direction (model faces +Z by default)
-        // Apply skin-specific rotation offset if defined
+        // Rotate to face walking direction
+        // Apply skin-specific rotation offset if defined (for models that face backwards)
         const selectedSkin = StoreManager.getSelectedSkin();
         const rotationOffset = selectedSkin?.rotationOffset || 0;
-        playerMesh.rotation.y = -state.player.angle + Math.PI / 2 + rotationOffset;
+        playerMesh.rotation.y = state.player.angle + rotationOffset;
 
         // Play/pause walking animation based on movement
         if (playerMesh.userData.walkAction) {
@@ -9364,7 +9605,9 @@ function updateScene() {
 
         opponentMesh.position.set(state.opponent.x, 0, state.opponent.z);
         // Rotate to face walking direction
-        opponentMesh.rotation.y = -state.opponent.angle + Math.PI / 2;
+        // Apply skin-specific rotation offset if stored on the mesh
+        const opponentRotationOffset = opponentMesh.userData.rotationOffset || 0;
+        opponentMesh.rotation.y = state.opponent.angle + opponentRotationOffset;
 
         // Play/pause walking animation for opponent
         if (opponentMesh.userData.walkAction) {
@@ -9378,11 +9621,11 @@ function updateScene() {
     }
 
     // Update camera to follow player
-    // Check for board-specific camera zoom
+    // Check for board-specific camera zoom (zoomed out 15% for full board visibility)
     const board = BOARDS[state.boardIndex] || BOARDS[0];
     const zoom = board.cameraZoom || 1;
-    const cameraHeight = 45 * zoom;
-    const cameraDistance = 25 * zoom;
+    const cameraHeight = 52 * zoom;
+    const cameraDistance = 29 * zoom;
 
     // Add screen shake
     let shakeX = 0, shakeZ = 0;
@@ -9392,12 +9635,13 @@ function updateScene() {
         state.screenShake *= 0.9;
     }
 
+    // Camera always centered on arena (0,0) for consistent view
     camera.position.set(
-        state.player.x + shakeX,
+        0 + shakeX,
         cameraHeight,
-        state.player.z + cameraDistance + shakeZ
+        0 + cameraDistance + shakeZ
     );
-    camera.lookAt(state.player.x, 0, state.player.z);
+    camera.lookAt(0, 0, 0);
 
     // Update theme-specific effects (particles, lights, etc.)
     updateThemeEffects();
