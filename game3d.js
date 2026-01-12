@@ -3,6 +3,1151 @@
 // ==========================================
 
 // ==========================================
+// CHARACTER STORE SYSTEM
+// ==========================================
+
+// Stripe Configuration
+// IMPORTANT: Replace with your actual Stripe publishable key and price IDs from your Stripe Dashboard
+const STRIPE_CONFIG = {
+    // Use test key for development, live key for production
+    publishableKey: 'pk_test_51SoWn5HYm0xuGGWyuzW20aH8tCnhud3RBnQQlsqMnLeld2OCCcLdE0DmjtaOS6gfFmzYhvz2HkANW3NqKpZ9dyHP00n24IUuj1',
+
+    // Set to false to use real Stripe Checkout (test mode still uses test card numbers)
+    testMode: false,
+
+    // Success/Cancel URLs - update these to your actual domain
+    successUrl: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
+    cancelUrl: window.location.origin + '?payment=cancelled'
+};
+
+// Stripe Payments Module
+const StripePayments = {
+    stripe: null,
+    pendingPurchase: null, // Stores purchase info before redirect
+
+    init() {
+        // Initialize Stripe only if not in test mode and key is set
+        if (!STRIPE_CONFIG.testMode && STRIPE_CONFIG.publishableKey !== 'pk_test_XXXXXXXXXXXXXXXXXXXXXXXX') {
+            try {
+                this.stripe = Stripe(STRIPE_CONFIG.publishableKey);
+                console.log('Stripe initialized successfully');
+            } catch (e) {
+                console.error('Failed to initialize Stripe:', e);
+            }
+        } else {
+            console.log('Stripe running in test mode - purchases will be simulated');
+        }
+
+        // Check for payment result on page load
+        this.handlePaymentResult();
+    },
+
+    // Store pending purchase in localStorage before redirect
+    savePendingPurchase(type, data) {
+        const pending = {
+            type: type, // 'coin_pack' or 'skin'
+            data: data,
+            timestamp: Date.now()
+        };
+        localStorage.setItem('pendingPurchase', JSON.stringify(pending));
+    },
+
+    // Get and clear pending purchase
+    getPendingPurchase() {
+        const pending = localStorage.getItem('pendingPurchase');
+        if (pending) {
+            localStorage.removeItem('pendingPurchase');
+            try {
+                const data = JSON.parse(pending);
+                // Only use if less than 1 hour old
+                if (Date.now() - data.timestamp < 3600000) {
+                    return data;
+                }
+            } catch (e) {
+                console.error('Failed to parse pending purchase:', e);
+            }
+        }
+        return null;
+    },
+
+    // Redirect to Stripe Payment Link
+    checkout(paymentLink, purchaseType, purchaseData) {
+        // If no payment link set up, simulate the purchase for testing
+        if (!paymentLink || paymentLink.includes('XXXXXXXX') || !paymentLink.startsWith('http')) {
+            console.log('No payment link - simulating purchase for testing');
+            return this.simulatePurchase(purchaseType, purchaseData);
+        }
+
+        // Full test mode - simulate everything
+        if (STRIPE_CONFIG.testMode) {
+            return this.simulatePurchase(purchaseType, purchaseData);
+        }
+
+        // Save pending purchase before redirect
+        this.savePendingPurchase(purchaseType, purchaseData);
+
+        // Redirect to Stripe Payment Link
+        console.log('Redirecting to payment link:', paymentLink);
+        window.location.href = paymentLink;
+    },
+
+    // Simulate purchase for test mode
+    simulatePurchase(purchaseType, purchaseData) {
+        const message = purchaseType === 'coin_pack'
+            ? `Purchase ${purchaseData.coins} coins for $${purchaseData.price.toFixed(2)}?`
+            : `Purchase ${purchaseData.name} for $${purchaseData.realMoneyPrice.toFixed(2)}?`;
+
+        if (confirm(message + '\n\n(TEST MODE - No real payment)')) {
+            if (purchaseType === 'coin_pack') {
+                onCoinPackPurchaseSuccess(purchaseData);
+            } else {
+                onDirectPurchaseSuccess(purchaseData);
+            }
+        }
+    },
+
+    // Handle return from Stripe Checkout
+    handlePaymentResult() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const paymentStatus = urlParams.get('payment');
+        const sessionId = urlParams.get('session_id');
+
+        if (paymentStatus === 'success') {
+            // Clear URL parameters
+            window.history.replaceState({}, document.title, window.location.pathname);
+
+            // Get pending purchase
+            const pending = this.getPendingPurchase();
+            if (pending) {
+                console.log('Payment successful, processing:', pending);
+
+                // Process the purchase
+                if (pending.type === 'coin_pack') {
+                    onCoinPackPurchaseSuccess(pending.data);
+                } else if (pending.type === 'skin') {
+                    onDirectPurchaseSuccess(pending.data);
+                }
+            } else {
+                // Show generic success if no pending purchase found
+                showPurchaseSuccess('Payment Successful!');
+            }
+        } else if (paymentStatus === 'cancelled') {
+            // Clear URL parameters
+            window.history.replaceState({}, document.title, window.location.pathname);
+            localStorage.removeItem('pendingPurchase');
+            console.log('Payment cancelled');
+        }
+    }
+};
+
+// Initialize Stripe on page load
+document.addEventListener('DOMContentLoaded', () => {
+    StripePayments.init();
+});
+
+// Coin packs available for purchase (prices in USD)
+// IMPORTANT: Create these products in Stripe Dashboard and add the price IDs here
+const COIN_PACKS = [
+    {
+        id: 'pack_small',
+        coins: 100,
+        price: 0.99,
+        bonus: 0,
+        label: 'Starter Pack',
+        stripePriceId: 'price_1SoWuwHYm0xuGGWygP8C5QvI',
+        paymentLink: 'https://buy.stripe.com/test_14AaEXgWZeTo4nag7M4F200'
+    },
+    {
+        id: 'pack_medium',
+        coins: 500,
+        price: 3.99,
+        bonus: 50,
+        label: 'Popular Pack',
+        popular: true,
+        stripePriceId: 'price_1SoWwUHYm0xuGGWyqY61RzKX',
+        paymentLink: 'https://buy.stripe.com/test_eVq6oH6ilh1w2f21cS4F201'
+    },
+    {
+        id: 'pack_large',
+        coins: 1000,
+        price: 6.99,
+        bonus: 150,
+        label: 'Best Value',
+        stripePriceId: 'price_1SoWx5HYm0xuGGWyx1dquN7Z',
+        paymentLink: 'https://buy.stripe.com/test_8x2dR9ayB12yg5SaNs4F202'
+    }
+];
+
+// IMPORTANT: Create these products in Stripe Dashboard and add the price IDs here
+const SKINS = {
+    default_seeker: {
+        id: 'default_seeker',
+        name: 'Default Man',
+        emoji: '🏃',
+        price: 0,
+        realMoneyPrice: 0,
+        stripePriceId: null, // Free - no Stripe product needed
+        owned: true,
+        path: 'images/Characters/Meshy_AI_biped/Meshy_AI_Animation_Walking_withSkin.glb',
+        color: '#4a90a4'
+    },
+    default_hider: {
+        id: 'default_hider',
+        name: 'Default Kid',
+        emoji: '🧒',
+        price: 0,
+        realMoneyPrice: 0,
+        stripePriceId: null, // Free - no Stripe product needed
+        owned: true,
+        path: 'images/Characters/Meshy_AI_biped/kid 5 - run.glb',
+        color: '#a44a90'
+    },
+    ghost: {
+        id: 'ghost',
+        name: 'Ghost',
+        emoji: '👻',
+        price: 50,
+        realMoneyPrice: 0.99,
+        stripePriceId: 'price_XXXXXXXX',
+        owned: false,
+        path: 'images/Characters/Upgrade Store Characters/compressed/ghost_running.glb',
+        color: '#e8e8ff',
+        scale: 8 // Bigger spooky ghost!
+    },
+    robot: {
+        id: 'robot',
+        name: 'Robot',
+        emoji: '🤖',
+        price: 100,
+        realMoneyPrice: 1.99,
+        stripePriceId: 'price_XXXXXXXX',
+        owned: false,
+        path: 'images/Characters/Upgrade Store Characters/compressed/robot_running.glb',
+        color: '#a0a0a0',
+        scale: 7 // Premium robot - nice and chunky
+    },
+    firefighter: {
+        id: 'firefighter',
+        name: 'Zombie Firefighter',
+        emoji: '🧟',
+        price: 75,
+        realMoneyPrice: 1.49,
+        stripePriceId: 'price_XXXXXXXX',
+        owned: false,
+        path: 'images/Characters/Upgrade Store Characters/compressed/firefighter_running.glb',
+        color: '#ff6b35',
+        scale: 6.5
+    },
+    dark_warrior: {
+        id: 'dark_warrior',
+        name: 'Dark Warrior',
+        emoji: '🗡️',
+        price: 85,
+        realMoneyPrice: 1.69,
+        stripePriceId: 'price_XXXXXXXX',
+        owned: false,
+        path: 'images/Characters/Upgrade Store Characters/compressed/dark_warrior_running.glb',
+        color: '#2a2a3a',
+        scale: 6.5
+    },
+    cyber_girl: {
+        id: 'cyber_girl',
+        name: 'Cyber Girl',
+        emoji: '👩‍💻',
+        price: 65,
+        realMoneyPrice: 1.29,
+        stripePriceId: 'price_XXXXXXXX',
+        owned: false,
+        path: 'images/Characters/Upgrade Store Characters/compressed/cyber_girl_running.glb',
+        color: '#ff00ff',
+        scale: 6
+    },
+    cyber_warrior: {
+        id: 'cyber_warrior',
+        name: 'Cyber Warrior',
+        emoji: '⚡',
+        price: 90,
+        realMoneyPrice: 1.79,
+        stripePriceId: 'price_XXXXXXXX',
+        owned: false,
+        path: 'images/Characters/Upgrade Store Characters/compressed/cyber_warrior_running.glb',
+        color: '#00ffff',
+        scale: 7 // Premium warrior
+    },
+    penguin: {
+        id: 'penguin',
+        name: 'Penguin',
+        emoji: '🐧',
+        price: 55,
+        realMoneyPrice: 0.99,
+        stripePriceId: 'price_XXXXXXXX',
+        owned: false,
+        path: 'images/Characters/Upgrade Store Characters/compressed/penguin_running.glb',
+        color: '#1a1a2e',
+        scale: 6,
+        rotationOffset: Math.PI  // Model faces backwards
+    },
+    mushroom_man: {
+        id: 'mushroom_man',
+        name: 'Mushroom Man',
+        emoji: '🍄',
+        price: 70,
+        realMoneyPrice: 1.49,
+        stripePriceId: 'price_XXXXXXXX',
+        owned: false,
+        path: 'images/Characters/Upgrade Store Characters/compressed/mushroom_man_running.glb',
+        celebrationPath: 'images/Characters/Upgrade Store Characters/compressed/mushroom_man_celebration.glb',
+        color: '#8b4513',
+        scale: 6,
+        rotationOffset: Math.PI  // Model faces backwards, rotate 180 degrees
+    },
+    cat: {
+        id: 'cat',
+        name: 'Cat',
+        emoji: '🐱',
+        price: 80,
+        realMoneyPrice: 1.99,
+        stripePriceId: 'price_XXXXXXXX',
+        owned: false,
+        path: 'images/Characters/Upgrade Store Characters/compressed/cat_running.glb',
+        celebrationPath: 'images/Characters/Upgrade Store Characters/compressed/cat_celebration.glb',
+        color: '#ff9966',
+        scale: 6,
+        rotationOffset: Math.PI  // Model faces backwards
+    }
+};
+
+// Get a random skin for AI that's different from the player's selected skin
+function getAISkin(playerSkinId) {
+    const allSkinIds = Object.keys(SKINS);
+    // Filter out the player's skin
+    const availableSkins = allSkinIds.filter(id => id !== playerSkinId);
+    // Pick a random one
+    const randomIndex = Math.floor(Math.random() * availableSkins.length);
+    return SKINS[availableSkins[randomIndex]];
+}
+
+// Store state
+const StoreManager = {
+    coins: 0,
+    ownedSkins: ['default_seeker', 'default_hider'],
+    selectedSkin: 'default_seeker',
+
+    init() {
+        // Load from localStorage
+        const saved = localStorage.getItem('hideSeekStore');
+        if (saved) {
+            try {
+                const data = JSON.parse(saved);
+                this.coins = data.coins || 0;
+                this.ownedSkins = data.ownedSkins || ['default_seeker', 'default_hider'];
+                this.selectedSkin = data.selectedSkin || 'default_seeker';
+            } catch (e) {
+                console.warn('Failed to load store data:', e);
+            }
+        }
+        this.updateOwnedStatus();
+    },
+
+    save() {
+        localStorage.setItem('hideSeekStore', JSON.stringify({
+            coins: this.coins,
+            ownedSkins: this.ownedSkins,
+            selectedSkin: this.selectedSkin
+        }));
+    },
+
+    updateOwnedStatus() {
+        Object.keys(SKINS).forEach(id => {
+            SKINS[id].owned = this.ownedSkins.includes(id);
+        });
+    },
+
+    addCoins(amount) {
+        this.coins += amount;
+        this.save();
+        this.updateCoinDisplay();
+    },
+
+    updateCoinDisplay() {
+        const storeCoins = document.getElementById('store-coins');
+        const gameCoins = document.getElementById('coin-display');
+        if (storeCoins) storeCoins.textContent = this.coins;
+        if (gameCoins) gameCoins.textContent = this.coins;
+    },
+
+    buySkin(skinId) {
+        const skin = SKINS[skinId];
+        if (!skin) return { success: false, message: 'Skin not found' };
+        if (skin.owned) return { success: false, message: 'Already owned' };
+        if (this.coins < skin.price) return { success: false, message: 'Not enough coins' };
+
+        this.coins -= skin.price;
+        this.ownedSkins.push(skinId);
+        skin.owned = true;
+        this.save();
+        this.updateCoinDisplay();
+
+        return { success: true, message: `Purchased ${skin.name}!` };
+    },
+
+    selectSkin(skinId) {
+        const skin = SKINS[skinId];
+        if (!skin) {
+            console.error('Skin not found:', skinId);
+            return false;
+        }
+        if (!skin.owned) {
+            console.error('Skin not owned:', skinId);
+            return false;
+        }
+
+        this.selectedSkin = skinId;
+        this.save();
+        console.log('Skin selected and saved:', skinId);
+        return true;
+    },
+
+    getSelectedSkin() {
+        const skin = SKINS[this.selectedSkin];
+        if (!skin) {
+            console.warn('Selected skin not found:', this.selectedSkin, '- using default');
+            return SKINS.default_seeker;
+        }
+        return skin;
+    }
+};
+
+// ========== 3D PREVIEW SYSTEM ==========
+let previewScene, previewCamera, previewRenderer;
+let previewModel, previewMixer, previewAnimating = false;
+let currentPreviewSkinId = null;
+
+// ========== CARD PREVIEW SYSTEM ==========
+// Each card gets its own mini 3D preview
+const cardPreviews = {}; // { skinId: { scene, camera, renderer, model, mixer, canvas } }
+let cardPreviewsAnimating = false;
+let cardPreviewClock = null;
+let cardPreviewLastTime = 0;
+
+function initCardPreview(skinId, canvas) {
+    if (!canvas) return null;
+
+    const width = canvas.clientWidth || 100;
+    const height = canvas.clientHeight || 120;
+
+    // Create scene
+    const scene = new THREE.Scene();
+    scene.background = null; // Transparent background
+
+    // Create camera - positioned to see full character
+    const camera = new THREE.PerspectiveCamera(35, width / height, 0.1, 100);
+    camera.position.set(0, 2.5, 7);
+    camera.lookAt(0, 1.5, 0);
+
+    // Create renderer with transparency
+    const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: true
+    });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setClearColor(0x000000, 0);
+
+    // Add very bright lights - ensure all characters are visible
+    // High ambient for overall brightness
+    const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
+    scene.add(ambientLight);
+
+    // Hemisphere light for natural sky/ground lighting
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
+    hemiLight.position.set(0, 10, 0);
+    scene.add(hemiLight);
+
+    // Strong front spotlight
+    const frontLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    frontLight.position.set(0, 5, 10);
+    scene.add(frontLight);
+
+    // Top light for even coverage
+    const topLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    topLight.position.set(0, 10, 0);
+    scene.add(topLight);
+
+    // Fill lights from both sides
+    const fillLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
+    fillLight1.position.set(5, 3, 5);
+    scene.add(fillLight1);
+
+    const fillLight2 = new THREE.DirectionalLight(0xffffff, 1.2);
+    fillLight2.position.set(-5, 3, 5);
+    scene.add(fillLight2);
+
+    // Back rim light for edge definition
+    const rimLight = new THREE.DirectionalLight(0xccddff, 0.8);
+    rimLight.position.set(0, 5, -5);
+    scene.add(rimLight);
+
+    return { scene, camera, renderer, model: null, mixer: null, canvas };
+}
+
+function loadCardModel(skinId) {
+    const preview = cardPreviews[skinId];
+    const skin = SKINS[skinId];
+    if (!preview || !skin) return;
+
+    // Remove old model if exists
+    if (preview.model) {
+        preview.scene.remove(preview.model);
+        preview.model = null;
+        preview.mixer = null;
+    }
+
+    const loader = new THREE.GLTFLoader();
+    if (typeof dracoLoader !== 'undefined') {
+        loader.setDRACOLoader(dracoLoader);
+    }
+
+    loader.load(skin.path,
+        (gltf) => {
+            const model = gltf.scene;
+            model.scale.set(2.2, 2.2, 2.2);
+
+            // Center the model
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+            model.position.x = -center.x;
+            model.position.z = -center.z;
+            model.position.y = 0;
+
+            preview.scene.add(model);
+            preview.model = model;
+
+            // Set up animation
+            if (gltf.animations && gltf.animations.length > 0) {
+                preview.mixer = new THREE.AnimationMixer(model);
+                const action = preview.mixer.clipAction(gltf.animations[0]);
+                action.play();
+            }
+
+            // Hide loading indicator for this card
+            const loadingEl = preview.canvas.parentElement?.querySelector('.card-loading');
+            if (loadingEl) loadingEl.style.display = 'none';
+        },
+        undefined,
+        (error) => {
+            console.error(`Error loading card model for ${skinId}:`, error);
+        }
+    );
+}
+
+function animateCardPreviews(currentTime) {
+    if (!cardPreviewsAnimating) return;
+    requestAnimationFrame(animateCardPreviews);
+
+    // Calculate proper delta time
+    if (!currentTime) currentTime = performance.now();
+    if (cardPreviewLastTime === 0) cardPreviewLastTime = currentTime;
+
+    let delta = (currentTime - cardPreviewLastTime) / 1000; // Convert to seconds
+    cardPreviewLastTime = currentTime;
+
+    // Clamp delta to prevent huge jumps (e.g., when tab was inactive)
+    if (delta > 0.1) delta = 0.016; // Cap at ~60fps equivalent
+    if (delta <= 0) delta = 0.016;
+
+    Object.values(cardPreviews).forEach(preview => {
+        if (!preview || !preview.renderer) return;
+
+        // Rotate model slowly (speed based on delta)
+        if (preview.model) {
+            preview.model.rotation.y += 0.9 * delta; // ~0.015 at 60fps
+        }
+
+        // Update animation
+        if (preview.mixer) {
+            preview.mixer.update(delta);
+        }
+
+        // Render
+        preview.renderer.render(preview.scene, preview.camera);
+    });
+}
+
+function cleanupCardPreviews() {
+    cardPreviewsAnimating = false;
+    cardPreviewLastTime = 0; // Reset timer
+    Object.keys(cardPreviews).forEach(skinId => {
+        const preview = cardPreviews[skinId];
+        if (preview) {
+            if (preview.renderer) preview.renderer.dispose();
+            if (preview.model) {
+                preview.scene.remove(preview.model);
+            }
+        }
+        delete cardPreviews[skinId];
+    });
+}
+
+function initPreviewRenderer() {
+    const canvas = document.getElementById('preview-canvas');
+    if (!canvas) return;
+
+    // Create scene
+    previewScene = new THREE.Scene();
+    previewScene.background = new THREE.Color(0x1a2a3a);
+
+    // Create camera
+    previewCamera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
+    previewCamera.position.set(0, 3, 8);
+    previewCamera.lookAt(0, 2, 0);
+
+    // Create renderer
+    previewRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    previewRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
+    previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    // Add lights
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    previewScene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(5, 10, 5);
+    previewScene.add(directionalLight);
+
+    const backLight = new THREE.DirectionalLight(0x4488ff, 0.3);
+    backLight.position.set(-5, 5, -5);
+    previewScene.add(backLight);
+
+    // Add ground circle
+    const groundGeometry = new THREE.CircleGeometry(3, 32);
+    const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x2a3a4a, roughness: 0.8 });
+    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    previewScene.add(ground);
+}
+
+function loadPreviewModel(skinId) {
+    const skin = SKINS[skinId];
+    if (!skin) return;
+
+    currentPreviewSkinId = skinId;
+
+    // Show loading
+    const loadingEl = document.getElementById('preview-loading');
+    if (loadingEl) loadingEl.classList.add('active');
+
+    // Remove old model
+    if (previewModel) {
+        previewScene.remove(previewModel);
+        previewModel = null;
+        previewMixer = null;
+    }
+
+    // Load new model
+    const loader = new THREE.GLTFLoader();
+    if (typeof dracoLoader !== 'undefined') {
+        loader.setDRACOLoader(dracoLoader);
+    }
+
+    loader.load(skin.path,
+        (gltf) => {
+            previewModel = gltf.scene;
+            previewModel.scale.set(3, 3, 3);
+            previewModel.position.set(0, 0, 0);
+
+            // Center the model
+            const box = new THREE.Box3().setFromObject(previewModel);
+            const center = box.getCenter(new THREE.Vector3());
+            previewModel.position.x = -center.x;
+            previewModel.position.z = -center.z;
+
+            previewScene.add(previewModel);
+
+            // Set up animation if available
+            if (gltf.animations && gltf.animations.length > 0) {
+                previewMixer = new THREE.AnimationMixer(previewModel);
+                const action = previewMixer.clipAction(gltf.animations[0]);
+                action.play();
+            }
+
+            // Hide loading
+            if (loadingEl) loadingEl.classList.remove('active');
+
+            // Start animation loop if not running
+            if (!previewAnimating) {
+                previewAnimating = true;
+                animatePreviewLoop();
+            }
+        },
+        undefined,
+        (error) => {
+            console.error('Error loading preview model:', error);
+            if (loadingEl) {
+                loadingEl.textContent = 'Failed to load';
+            }
+        }
+    );
+
+    // Update preview info
+    updatePreviewInfo(skin);
+
+    // Highlight selected card
+    document.querySelectorAll('.skin-card').forEach(card => {
+        card.classList.remove('previewing');
+    });
+    const selectedCard = document.querySelector(`[data-skin-id="${skinId}"]`);
+    if (selectedCard) selectedCard.classList.add('previewing');
+}
+
+function updatePreviewInfo(skin) {
+    const nameEl = document.getElementById('preview-skin-name');
+    const priceEl = document.getElementById('preview-skin-price');
+    const actionBtn = document.getElementById('preview-action-btn');
+
+    if (nameEl) nameEl.textContent = skin.name;
+
+    if (priceEl) {
+        if (skin.owned) {
+            priceEl.innerHTML = '<span style="color: #4CAF50;">✓ OWNED</span>';
+        } else if (skin.price === 0) {
+            priceEl.innerHTML = '<span style="color: #4CAF50;">FREE</span>';
+        } else {
+            priceEl.innerHTML = `🪙 ${skin.price} coins`;
+        }
+    }
+
+    if (actionBtn) {
+        actionBtn.style.display = 'block';
+        if (skin.id === StoreManager.selectedSkin) {
+            actionBtn.textContent = '✓ EQUIPPED';
+            actionBtn.disabled = true;
+            actionBtn.className = 'btn secondary';
+        } else if (skin.owned) {
+            actionBtn.textContent = 'EQUIP';
+            actionBtn.disabled = false;
+            actionBtn.className = 'btn primary';
+            actionBtn.onclick = () => {
+                StoreManager.selectSkin(skin.id);
+                renderStore();
+                loadPreviewModel(skin.id);
+            };
+        } else {
+            actionBtn.textContent = `BUY (${skin.price} 🪙)`;
+            actionBtn.disabled = false; // Always enabled - will show modal if not enough coins
+            actionBtn.className = 'btn store-button';
+            actionBtn.onclick = () => {
+                if (StoreManager.coins < skin.price) {
+                    // Not enough coins - show purchase modal
+                    openPurchaseModal(skin);
+                } else {
+                    // Has enough coins - buy directly
+                    const result = StoreManager.buySkin(skin.id);
+                    if (result.success) {
+                        renderStore();
+                        updatePreviewInfo(SKINS[skin.id]);
+                    }
+                }
+            };
+        }
+    }
+}
+
+function animatePreviewLoop() {
+    if (!previewAnimating) return;
+    requestAnimationFrame(animatePreviewLoop);
+
+    // Rotate model
+    if (previewModel) {
+        previewModel.rotation.y += 0.01;
+    }
+
+    // Update animation
+    if (previewMixer) {
+        previewMixer.update(0.016);
+    }
+
+    // Render
+    if (previewRenderer && previewScene && previewCamera) {
+        previewRenderer.render(previewScene, previewCamera);
+    }
+}
+
+function stopPreviewAnimation() {
+    previewAnimating = false;
+}
+
+// ==========================================
+// PURCHASE MODAL SYSTEM
+// ==========================================
+
+let currentPurchaseSkin = null;
+
+function openPurchaseModal(skin) {
+    currentPurchaseSkin = skin;
+    const modal = document.getElementById('purchase-modal');
+    if (!modal) return;
+
+    // Calculate coins needed
+    const coinsNeeded = skin.price - StoreManager.coins;
+    document.getElementById('coins-needed').textContent = coinsNeeded;
+
+    // Populate coin packs
+    const packsContainer = document.getElementById('coin-packs-container');
+    packsContainer.innerHTML = '';
+
+    COIN_PACKS.forEach(pack => {
+        const packEl = document.createElement('div');
+        packEl.className = 'coin-pack' + (pack.popular ? ' popular' : '');
+        packEl.onclick = () => purchaseCoinPack(pack);
+
+        packEl.innerHTML = `
+            <div class="coin-pack-info">
+                <span class="coin-pack-icon">🪙</span>
+                <div class="coin-pack-details">
+                    <span class="coin-pack-amount">${pack.coins} Coins</span>
+                    ${pack.bonus > 0 ? `<span class="coin-pack-bonus">+${pack.bonus} Bonus!</span>` : ''}
+                </div>
+            </div>
+            <div class="coin-pack-price">$${pack.price.toFixed(2)}</div>
+        `;
+
+        packsContainer.appendChild(packEl);
+    });
+
+    // Populate direct purchase
+    document.getElementById('direct-skin-preview').textContent = skin.emoji;
+    document.getElementById('direct-skin-name').textContent = skin.name;
+    document.getElementById('direct-price').textContent = skin.realMoneyPrice.toFixed(2);
+
+    // Show modal
+    modal.style.display = 'flex';
+}
+
+function closePurchaseModal() {
+    const modal = document.getElementById('purchase-modal');
+    if (modal) modal.style.display = 'none';
+    currentPurchaseSkin = null;
+    // Show the direct purchase section again
+    const directSection = document.querySelector('.direct-purchase');
+    if (directSection) directSection.style.display = 'block';
+}
+
+// Open modal just for buying coins (no skin context)
+function openBuyCoinsModal() {
+    currentPurchaseSkin = null;
+    const modal = document.getElementById('purchase-modal');
+    if (!modal) return;
+
+    // Update header text
+    document.getElementById('coins-needed-text').innerHTML = 'Choose a coin pack:';
+
+    // Populate coin packs
+    const packsContainer = document.getElementById('coin-packs-container');
+    packsContainer.innerHTML = '';
+
+    COIN_PACKS.forEach(pack => {
+        const packEl = document.createElement('div');
+        packEl.className = 'coin-pack' + (pack.popular ? ' popular' : '');
+        packEl.onclick = () => purchaseCoinPack(pack);
+
+        packEl.innerHTML = `
+            <div class="coin-pack-info">
+                <span class="coin-pack-icon">🪙</span>
+                <div class="coin-pack-details">
+                    <span class="coin-pack-amount">${pack.coins} Coins</span>
+                    ${pack.bonus > 0 ? `<span class="coin-pack-bonus">+${pack.bonus} Bonus!</span>` : ''}
+                </div>
+            </div>
+            <div class="coin-pack-price">$${pack.price.toFixed(2)}</div>
+        `;
+
+        packsContainer.appendChild(packEl);
+    });
+
+    // Hide the direct purchase section (no skin selected)
+    const directSection = document.querySelector('.direct-purchase');
+    if (directSection) directSection.style.display = 'none';
+
+    // Show modal
+    modal.style.display = 'flex';
+}
+
+// Close modal when clicking outside
+document.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('purchase-modal');
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closePurchaseModal();
+            }
+        });
+    }
+
+    // Buy Coins button
+    const buyCoinsBtn = document.getElementById('buy-coins-btn');
+    if (buyCoinsBtn) {
+        buyCoinsBtn.addEventListener('click', openBuyCoinsModal);
+    }
+});
+
+// Cheat code: Type "money" to get 1000 coins
+let cheatBuffer = '';
+document.addEventListener('keydown', (e) => {
+    cheatBuffer += e.key.toLowerCase();
+    if (cheatBuffer.length > 10) cheatBuffer = cheatBuffer.slice(-10);
+
+    if (cheatBuffer.includes('money')) {
+        StoreManager.addCoins(1000);
+        showPurchaseSuccess('+1000 Coins! 💰');
+        cheatBuffer = '';
+        console.log('Cheat activated: +1000 coins');
+    }
+});
+
+// Payment functions using Stripe Payment Links
+function purchaseCoinPack(pack) {
+    console.log('Purchase coin pack:', pack);
+    StripePayments.checkout(pack.paymentLink, 'coin_pack', pack);
+}
+
+function purchaseSkinDirect() {
+    if (!currentPurchaseSkin) return;
+    console.log('Direct purchase skin:', currentPurchaseSkin);
+    StripePayments.checkout(currentPurchaseSkin.paymentLink, 'skin', currentPurchaseSkin);
+}
+
+// Called after successful coin pack payment
+function onCoinPackPurchaseSuccess(pack) {
+    const totalCoins = pack.coins + (pack.bonus || 0);
+    StoreManager.addCoins(totalCoins);
+
+    closePurchaseModal();
+
+    // Show success feedback
+    showPurchaseSuccess(`+${totalCoins} Coins Added!`);
+
+    // Refresh the store UI
+    renderStore();
+    if (currentPreviewSkinId) {
+        updatePreviewInfo(SKINS[currentPreviewSkinId]);
+    }
+}
+
+// Called after successful direct skin purchase
+function onDirectPurchaseSuccess(skin) {
+    // Add skin to owned list
+    StoreManager.ownedSkins.push(skin.id);
+    skin.owned = true;
+    StoreManager.save();
+
+    closePurchaseModal();
+
+    // Show success feedback
+    showPurchaseSuccess(`${skin.name} Unlocked!`);
+
+    // Refresh the store UI
+    renderStore();
+    updatePreviewInfo(skin);
+}
+
+function showPurchaseSuccess(message) {
+    // Create a temporary success notification
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%);
+        color: white;
+        padding: 20px 40px;
+        border-radius: 15px;
+        font-size: 1.5rem;
+        font-weight: bold;
+        z-index: 10001;
+        animation: successPop 0.5s ease;
+        box-shadow: 0 10px 40px rgba(76, 175, 80, 0.5);
+    `;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+
+    // Add animation keyframes if not already present
+    if (!document.getElementById('success-animation-style')) {
+        const style = document.createElement('style');
+        style.id = 'success-animation-style';
+        style.textContent = `
+            @keyframes successPop {
+                0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+                50% { transform: translate(-50%, -50%) scale(1.1); }
+                100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // Remove after delay
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+    }, 2000);
+}
+
+// Store UI functions
+function openStore() {
+    document.getElementById('menu-screen').classList.remove('active');
+    document.getElementById('store-screen').classList.add('active');
+
+    // Initialize preview renderer if needed
+    if (!previewRenderer) {
+        initPreviewRenderer();
+    }
+
+    renderStore();
+
+    // Load currently selected skin preview
+    loadPreviewModel(StoreManager.selectedSkin);
+}
+
+function closeStore() {
+    document.getElementById('store-screen').classList.remove('active');
+    document.getElementById('menu-screen').classList.add('active');
+    stopPreviewAnimation();
+    cleanupCardPreviews();
+    // Refresh home preview to show newly equipped skin
+    refreshHomePreview();
+}
+
+function renderStore() {
+    StoreManager.updateCoinDisplay();
+
+    // Clean up existing card previews before re-rendering
+    cleanupCardPreviews();
+
+    // Render all skins
+    const grid = document.getElementById('skins-grid');
+    if (!grid) return;
+
+    grid.innerHTML = '';
+
+    // Sort skins by price (ascending) - owned/free first, then by price
+    const sortedSkins = Object.values(SKINS).sort((a, b) => {
+        // Owned skins first
+        if (a.owned && !b.owned) return -1;
+        if (!a.owned && b.owned) return 1;
+        // Then by price
+        return a.price - b.price;
+    });
+
+    sortedSkins.forEach(skin => {
+        const card = document.createElement('div');
+        card.className = 'skin-card';
+        card.setAttribute('data-skin-id', skin.id);
+        if (skin.owned) card.classList.add('owned');
+        if (skin.id === StoreManager.selectedSkin) card.classList.add('selected');
+        if (skin.id === currentPreviewSkinId) card.classList.add('previewing');
+
+        // Click to preview in main preview panel
+        card.onclick = () => loadPreviewModel(skin.id);
+
+        // Create 3D preview container with canvas
+        const preview = document.createElement('div');
+        preview.className = 'skin-preview skin-preview-3d';
+
+        const canvas = document.createElement('canvas');
+        canvas.className = 'card-preview-canvas';
+        canvas.setAttribute('data-skin-id', skin.id);
+
+        const loading = document.createElement('div');
+        loading.className = 'card-loading';
+        loading.textContent = '...';
+
+        preview.appendChild(canvas);
+        preview.appendChild(loading);
+
+        const name = document.createElement('div');
+        name.className = 'skin-name';
+        name.textContent = skin.name;
+
+        const price = document.createElement('div');
+        price.className = 'skin-price';
+        if (skin.owned) {
+            if (skin.id === StoreManager.selectedSkin) {
+                price.innerHTML = '<span style="color: #ffd700;">✓</span>';
+            } else {
+                price.innerHTML = '<span style="color: #4CAF50;">✓</span>';
+            }
+        } else if (skin.price === 0) {
+            price.classList.add('free');
+            price.textContent = 'FREE';
+        } else {
+            price.innerHTML = `🪙 ${skin.price}`;
+        }
+
+        card.appendChild(preview);
+        card.appendChild(name);
+        card.appendChild(price);
+
+        grid.appendChild(card);
+    });
+
+    // Initialize all card previews after DOM is ready
+    setTimeout(() => {
+        initAllCardPreviews();
+    }, 50);
+}
+
+function initAllCardPreviews() {
+    const canvases = document.querySelectorAll('.card-preview-canvas');
+
+    canvases.forEach(canvas => {
+        const skinId = canvas.getAttribute('data-skin-id');
+        if (skinId && !cardPreviews[skinId]) {
+            const previewData = initCardPreview(skinId, canvas);
+            if (previewData) {
+                cardPreviews[skinId] = previewData;
+                loadCardModel(skinId);
+            }
+        }
+    });
+
+    // Start animation loop if not already running
+    if (!cardPreviewsAnimating && Object.keys(cardPreviews).length > 0) {
+        cardPreviewsAnimating = true;
+        cardPreviewLastTime = 0; // Reset timer for smooth start
+        animateCardPreviews();
+    }
+}
+
+// Helper to darken/lighten a hex color
+function adjustColor(hex, amount) {
+    hex = hex.replace('#', '');
+    const num = parseInt(hex, 16);
+    let r = (num >> 16) + amount;
+    let g = ((num >> 8) & 0x00FF) + amount;
+    let b = (num & 0x0000FF) + amount;
+    r = Math.max(0, Math.min(255, r));
+    g = Math.max(0, Math.min(255, g));
+    b = Math.max(0, Math.min(255, b));
+    return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+}
+
+// Initialize store on page load
+document.addEventListener('DOMContentLoaded', () => {
+    StoreManager.init();
+
+    // Store button event listeners
+    const storeBtn = document.getElementById('store-btn');
+    const storeBackBtn = document.getElementById('store-back-btn');
+
+    if (storeBtn) storeBtn.addEventListener('click', openStore);
+    if (storeBackBtn) storeBackBtn.addEventListener('click', closeStore);
+});
+
+// ==========================================
 // Sound System (Web Audio API)
 // ==========================================
 
@@ -457,6 +1602,234 @@ const SoundManager = {
         shimmerGain.connect(this.masterGain);
         shimmer.start(now);
         shimmer.stop(now + 0.4);
+    },
+
+    // Portal teleport whoosh sound
+    playPortalWhoosh() {
+        if (!this.enabled || !this.audioContext) return;
+        this.resume();
+
+        const ctx = this.audioContext;
+        const now = ctx.currentTime;
+
+        // Dimensional whoosh - sweeping noise
+        const bufferSize = ctx.sampleRate * 0.5;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            const t = i / bufferSize;
+            // Fade in then out
+            const envelope = Math.sin(t * Math.PI);
+            data[i] = (Math.random() * 2 - 1) * envelope;
+        }
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+
+        // Bandpass filter that sweeps up
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(200, now);
+        filter.frequency.exponentialRampToValueAtTime(2000, now + 0.25);
+        filter.frequency.exponentialRampToValueAtTime(400, now + 0.5);
+        filter.Q.value = 2;
+
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(0.5, now);
+        noiseGain.gain.linearRampToValueAtTime(0.6, now + 0.15);
+        noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(this.masterGain);
+        noise.start(now);
+        noise.stop(now + 0.5);
+
+        // Ethereal tone - pitch shift effect
+        const osc1 = ctx.createOscillator();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(150, now);
+        osc1.frequency.exponentialRampToValueAtTime(600, now + 0.2);
+        osc1.frequency.exponentialRampToValueAtTime(200, now + 0.4);
+
+        const osc1Gain = ctx.createGain();
+        osc1Gain.gain.setValueAtTime(0.15, now);
+        osc1Gain.gain.linearRampToValueAtTime(0.25, now + 0.15);
+        osc1Gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+        osc1.connect(osc1Gain);
+        osc1Gain.connect(this.masterGain);
+        osc1.start(now);
+        osc1.stop(now + 0.4);
+
+        // High shimmer for magic feel
+        const shimmer = ctx.createOscillator();
+        shimmer.type = 'sine';
+        shimmer.frequency.setValueAtTime(1200, now);
+        shimmer.frequency.exponentialRampToValueAtTime(2400, now + 0.3);
+
+        const shimmerGain2 = ctx.createGain();
+        shimmerGain2.gain.setValueAtTime(0.08, now);
+        shimmerGain2.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+        shimmer.connect(shimmerGain2);
+        shimmerGain2.connect(this.masterGain);
+        shimmer.start(now);
+        shimmer.stop(now + 0.3);
+    },
+
+    // Phase walk music - fast-paced electronic beat
+    phaseWalkMusic: null,
+    phaseWalkOscillators: [],
+
+    playPhaseWalkMusic() {
+        if (!this.enabled || !this.audioContext) return;
+        this.resume();
+
+        const ctx = this.audioContext;
+        const now = ctx.currentTime;
+
+        // Stop any existing phase walk music
+        this.stopPhaseWalkMusic();
+
+        // Create master gain for phase walk music
+        this.phaseWalkMusic = ctx.createGain();
+        this.phaseWalkMusic.gain.value = 0.3;
+        this.phaseWalkMusic.connect(this.masterGain);
+
+        // Fast pulsing bass
+        const createPulsingBass = () => {
+            const bass = ctx.createOscillator();
+            bass.type = 'sawtooth';
+            bass.frequency.value = 80;
+
+            const bassFilter = ctx.createBiquadFilter();
+            bassFilter.type = 'lowpass';
+            bassFilter.frequency.value = 200;
+
+            const bassGain = ctx.createGain();
+            bassGain.gain.value = 0;
+
+            // Fast pulsing effect (150 BPM)
+            const beatDuration = 0.4; // 150 BPM
+            const pulseLoop = () => {
+                if (!this.phaseWalkMusic) return;
+                const t = ctx.currentTime;
+                bassGain.gain.setValueAtTime(0.5, t);
+                bassGain.gain.exponentialRampToValueAtTime(0.01, t + beatDuration * 0.8);
+            };
+            const bassInterval = setInterval(pulseLoop, beatDuration * 1000);
+            this.phaseWalkOscillators.push({ interval: bassInterval });
+
+            bass.connect(bassFilter);
+            bassFilter.connect(bassGain);
+            bassGain.connect(this.phaseWalkMusic);
+            bass.start(now);
+            this.phaseWalkOscillators.push({ osc: bass });
+            pulseLoop();
+        };
+
+        // High ethereal synth arpeggio
+        const createArpeggio = () => {
+            const notes = [440, 523, 659, 880, 659, 523]; // A, C, E, A, E, C
+            let noteIndex = 0;
+
+            const arp = ctx.createOscillator();
+            arp.type = 'sine';
+            arp.frequency.value = notes[0];
+
+            const arpGain = ctx.createGain();
+            arpGain.gain.value = 0.15;
+
+            // Vibrato effect
+            const vibrato = ctx.createOscillator();
+            vibrato.frequency.value = 6;
+            const vibratoGain = ctx.createGain();
+            vibratoGain.gain.value = 5;
+            vibrato.connect(vibratoGain);
+            vibratoGain.connect(arp.frequency);
+            vibrato.start(now);
+            this.phaseWalkOscillators.push({ osc: vibrato });
+
+            const arpLoop = () => {
+                if (!this.phaseWalkMusic) return;
+                arp.frequency.setValueAtTime(notes[noteIndex], ctx.currentTime);
+                noteIndex = (noteIndex + 1) % notes.length;
+            };
+            const arpInterval = setInterval(arpLoop, 100); // Fast arpeggios
+            this.phaseWalkOscillators.push({ interval: arpInterval });
+
+            arp.connect(arpGain);
+            arpGain.connect(this.phaseWalkMusic);
+            arp.start(now);
+            this.phaseWalkOscillators.push({ osc: arp });
+        };
+
+        // Ghost-like whoosh sound
+        const createGhostWhoosh = () => {
+            const bufferSize = ctx.sampleRate * 2;
+            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+
+            const noise = ctx.createBufferSource();
+            noise.buffer = buffer;
+            noise.loop = true;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.Q.value = 5;
+
+            // Sweeping filter for ghostly effect
+            const sweepLoop = () => {
+                if (!this.phaseWalkMusic) return;
+                const t = ctx.currentTime;
+                filter.frequency.setValueAtTime(300, t);
+                filter.frequency.linearRampToValueAtTime(800, t + 0.5);
+                filter.frequency.linearRampToValueAtTime(300, t + 1.0);
+            };
+            const sweepInterval = setInterval(sweepLoop, 1000);
+            this.phaseWalkOscillators.push({ interval: sweepInterval });
+
+            const noiseGain = ctx.createGain();
+            noiseGain.gain.value = 0.1;
+
+            noise.connect(filter);
+            filter.connect(noiseGain);
+            noiseGain.connect(this.phaseWalkMusic);
+            noise.start(now);
+            this.phaseWalkOscillators.push({ osc: noise });
+            sweepLoop();
+        };
+
+        createPulsingBass();
+        createArpeggio();
+        createGhostWhoosh();
+    },
+
+    stopPhaseWalkMusic() {
+        // Stop all oscillators and intervals
+        for (const item of this.phaseWalkOscillators) {
+            if (item.osc) {
+                try {
+                    item.osc.stop();
+                } catch (e) {
+                    // Oscillator may already be stopped
+                }
+            }
+            if (item.interval) {
+                clearInterval(item.interval);
+            }
+        }
+        this.phaseWalkOscillators = [];
+
+        // Disconnect master gain
+        if (this.phaseWalkMusic) {
+            this.phaseWalkMusic.disconnect();
+            this.phaseWalkMusic = null;
+        }
     }
 };
 
@@ -481,9 +1854,9 @@ document.addEventListener('touchstart', () => {
 const CONFIG = {
     ARENA_RADIUS: 40,
     PLAYER_RADIUS: 1.5,
-    HIDER_SPEED: 0.28,
-    SEEKER_SPEED: 0.35,
-    BOOST_SPEED: 0.6,
+    HIDER_SPEED: 0.98,
+    SEEKER_SPEED: 1.17,
+    BOOST_SPEED: 1.95,
     BOOST_DURATION: 1500,
     BOOST_COOLDOWN: 5000,
     SEEKER_VIEW_RANGE: 28,
@@ -492,55 +1865,90 @@ const CONFIG = {
     CATCH_DISTANCE: 5,
     WALL_HEIGHT: 4,
     // Collectibles
-    COIN_COUNT: 3,
+    COIN_COUNT: 2,
+    MULTIPLIER_COUNT: 1,  // Number of 3x multiplier coins per board
     COIN_RADIUS: 0.8,
-    POWERUP_SPAWN_INTERVAL: 18000,
+    POWERUP_SPAWN_INTERVAL: 10000,
     POWERUP_RADIUS: 1.2,
     INVISIBILITY_DURATION: 3000,
     SPEED_BOOST_DURATION: 4000,
     FREEZE_DURATION: 2000,
-    COLLECTIBLE_PICKUP_DISTANCE: 3
+    PHASE_WALK_DURATION: 5000,
+    COLLECTIBLE_PICKUP_DISTANCE: 5
 };
 
 // Board definitions with themes
 const BOARDS = [
     {
         name: "The Garden",
-        spawns: { seeker: { x: -30, z: 0 }, hider: { x: 30, z: 0 } },
+        spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x3d5c3d, wall: 0x8b4513, wallHighlight: 0x228b22, sky: 0x87CEEB },
         theme: 'garden',
+        cameraZoom: 1.4,
         walls: [
-            { x: -6, z: -6, w: 12, d: 2 },
-            { x: -6, z: 4, w: 12, d: 2 },
-            { x: -6, z: -4, w: 2, d: 8 },
-            { x: 4, z: -4, w: 2, d: 8 },
-            { x: -20, z: -5, w: 8, d: 2 },
-            { x: 12, z: -5, w: 8, d: 2 },
-            { x: -20, z: 3, w: 8, d: 2 },
-            { x: 12, z: 3, w: 8, d: 2 },
-            { x: -28, z: -28, w: 6, d: 6 },
-            { x: 22, z: -28, w: 6, d: 6 },
-            { x: -28, z: 22, w: 6, d: 6 },
-            { x: 22, z: 22, w: 6, d: 6 }
+            // Hedge borders with wide openings
+            { x: -32, z: -28, w: 16, d: 2 },
+            { x: 16, z: -28, w: 16, d: 2 },
+            { x: -32, z: 28, w: 16, d: 2 },
+            { x: 16, z: 28, w: 16, d: 2 },
+            // Side hedges with gaps
+            { x: -32, z: -26, w: 2, d: 16 },
+            { x: -32, z: 12, w: 2, d: 16 },
+            { x: 30, z: -26, w: 2, d: 16 },
+            { x: 30, z: 12, w: 2, d: 16 },
+            // Inner hedge L-shapes (open design)
+            { x: -20, z: -16, w: 12, d: 2 },
+            { x: -20, z: -14, w: 2, d: 8 },
+            { x: 8, z: -16, w: 12, d: 2 },
+            { x: 18, z: -14, w: 2, d: 8 },
+            // Middle row hedges
+            { x: -15, z: 0, w: 10, d: 2 },
+            { x: 5, z: 0, w: 10, d: 2 },
+            // Bottom L-shapes
+            { x: -20, z: 14, w: 12, d: 2 },
+            { x: -20, z: 8, w: 2, d: 8 },
+            { x: 8, z: 14, w: 12, d: 2 },
+            { x: 18, z: 8, w: 2, d: 8 },
+            // Small flower bed obstacles
+            { x: -8, z: -8, w: 4, d: 4 },
+            { x: 4, z: 6, w: 4, d: 4 }
         ]
     },
     {
         name: "The Haunted Maze",
-        spawns: { seeker: { x: -30, z: -28 }, hider: { x: 30, z: 28 } },
+        spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x1a1a2e, wall: 0x4a4a6a, sky: 0x0a0a1a },
         theme: 'haunted',
+        cameraZoom: 1.4,
         walls: [
-            { x: -30, z: -20, w: 15, d: 2 },
-            { x: -10, z: -20, w: 20, d: 2 },
-            { x: 15, z: -20, w: 15, d: 2 },
-            { x: -20, z: -10, w: 12, d: 2 },
-            { x: 8, z: -10, w: 12, d: 2 },
-            { x: -15, z: 0, w: 30, d: 2 },
-            { x: -20, z: 10, w: 12, d: 2 },
-            { x: 8, z: 10, w: 12, d: 2 },
-            { x: -30, z: 20, w: 15, d: 2 },
-            { x: -10, z: 20, w: 20, d: 2 },
-            { x: 15, z: 20, w: 15, d: 2 }
+            // Outer walls with wide entrances
+            { x: -30, z: -30, w: 16, d: 2 },
+            { x: 14, z: -30, w: 16, d: 2 },
+            { x: -30, z: 28, w: 16, d: 2 },
+            { x: 14, z: 28, w: 16, d: 2 },
+            // Side walls with gaps
+            { x: -32, z: -28, w: 2, d: 16 },
+            { x: -32, z: 12, w: 2, d: 18 },
+            { x: 30, z: -28, w: 2, d: 16 },
+            { x: 30, z: 12, w: 2, d: 18 },
+            // Inner L-shaped walls (not enclosed)
+            { x: -20, z: -18, w: 12, d: 2 },
+            { x: -20, z: -16, w: 2, d: 10 },
+            { x: 8, z: -18, w: 12, d: 2 },
+            { x: 18, z: -16, w: 2, d: 10 },
+            // Middle section
+            { x: -12, z: -2, w: 10, d: 2 },
+            { x: 2, z: -2, w: 10, d: 2 },
+            // Bottom L-shapes
+            { x: -20, z: 14, w: 12, d: 2 },
+            { x: -20, z: 8, w: 2, d: 8 },
+            { x: 8, z: 14, w: 12, d: 2 },
+            { x: 18, z: 8, w: 2, d: 8 },
+            // Scattered tombstone obstacles
+            { x: -8, z: -12, w: 3, d: 3 },
+            { x: 6, z: 8, w: 3, d: 3 },
+            { x: -15, z: 22, w: 4, d: 3 },
+            { x: 12, z: -25, w: 3, d: 4 }
         ]
     },
     {
@@ -548,63 +1956,99 @@ const BOARDS = [
         spawns: { seeker: { x: -20, z: -20 }, hider: { x: 20, z: 20 } },
         style: { floor: 0x0a0a15, wall: 0x00ffff, wallGlow: 0x00ffff, sky: 0x050510 },
         theme: 'neon',
+        cameraZoom: 1.4,
         walls: [
-            { x: -25, z: -25, w: 4, d: 4 },
-            { x: -15, z: -25, w: 4, d: 4 },
-            { x: -5, z: -25, w: 4, d: 4 },
-            { x: 5, z: -25, w: 4, d: 4 },
-            { x: 15, z: -25, w: 4, d: 4 },
-            { x: 25, z: -25, w: 4, d: 4 },
-            { x: -25, z: -10, w: 4, d: 4 },
-            { x: -5, z: -10, w: 4, d: 4 },
-            { x: 15, z: -10, w: 4, d: 4 },
-            { x: -15, z: 5, w: 4, d: 4 },
-            { x: 5, z: 5, w: 4, d: 4 },
-            { x: 25, z: 5, w: 4, d: 4 },
-            { x: -25, z: 20, w: 4, d: 4 },
-            { x: -5, z: 20, w: 4, d: 4 },
-            { x: 15, z: 20, w: 4, d: 4 }
+            // Simple grid pattern with wide corridors - no enclosed sections
+            // Top horizontal bars (with gaps)
+            { x: -28, z: 20, w: 18, d: 2 },
+            { x: 10, z: 20, w: 18, d: 2 },
+            // Middle-top horizontal bars
+            { x: -20, z: 8, w: 14, d: 2 },
+            { x: 6, z: 8, w: 14, d: 2 },
+            // Center horizontal bar (short)
+            { x: -8, z: -2, w: 16, d: 2 },
+            // Middle-bottom horizontal bars
+            { x: -20, z: -12, w: 14, d: 2 },
+            { x: 6, z: -12, w: 14, d: 2 },
+            // Bottom horizontal bars (with gaps)
+            { x: -28, z: -24, w: 18, d: 2 },
+            { x: 10, z: -24, w: 18, d: 2 },
+            // Vertical bars - left side
+            { x: -22, z: -20, w: 2, d: 12 },
+            { x: -22, z: 10, w: 2, d: 12 },
+            // Vertical bars - right side
+            { x: 20, z: -20, w: 2, d: 12 },
+            { x: 20, z: 10, w: 2, d: 12 },
+            // Center vertical bars (short)
+            { x: -8, z: -8, w: 2, d: 10 },
+            { x: 6, z: -2, w: 2, d: 10 }
         ]
     },
     {
         name: "The Fortress",
-        spawns: { seeker: { x: -20, z: 0 }, hider: { x: 20, z: 0 } },
+        spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x3d3d3d, wall: 0x8b7355, wallHighlight: 0xc9a959, sky: 0x2a1a0a },
         theme: 'medieval',
+        cameraZoom: 1.4,
         walls: [
-            { x: -30, z: -30, w: 20, d: 2.5 },
-            { x: 10, z: -30, w: 20, d: 2.5 },
-            { x: -30, z: 27.5, w: 20, d: 2.5 },
-            { x: 10, z: 27.5, w: 20, d: 2.5 },
-            { x: -30, z: -30, w: 2.5, d: 20 },
-            { x: -30, z: 10, w: 2.5, d: 20 },
-            { x: 27.5, z: -30, w: 2.5, d: 20 },
-            { x: 27.5, z: 10, w: 2.5, d: 20 },
-            { x: -8, z: -8, w: 16, d: 2.5 },
-            { x: -8, z: 5.5, w: 16, d: 2.5 },
-            { x: -8, z: -8, w: 2.5, d: 16 },
-            { x: 5.5, z: -8, w: 2.5, d: 16 }
+            // Outer castle walls with wide gates
+            { x: -32, z: -30, w: 18, d: 3 },
+            { x: 14, z: -30, w: 18, d: 3 },
+            { x: -32, z: 28, w: 18, d: 3 },
+            { x: 14, z: 28, w: 18, d: 3 },
+            // Corner towers (no full side walls - open fortress)
+            { x: -32, z: -27, w: 3, d: 10 },
+            { x: -32, z: 18, w: 3, d: 12 },
+            { x: 29, z: -27, w: 3, d: 10 },
+            { x: 29, z: 18, w: 3, d: 12 },
+            // Inner keep - L-shaped walls with gaps (not enclosed)
+            { x: -12, z: -12, w: 14, d: 2 },
+            { x: -12, z: 10, w: 14, d: 2 },
+            { x: -12, z: -10, w: 2, d: 10 },
+            { x: 10, z: 2, w: 2, d: 10 },
+            // Corridor walls (short, with gaps)
+            { x: -25, z: -15, w: 8, d: 2 },
+            { x: 17, z: -15, w: 8, d: 2 },
+            { x: -25, z: 15, w: 8, d: 2 },
+            { x: 17, z: 15, w: 8, d: 2 },
+            // Small pillar obstacles
+            { x: -20, z: -20, w: 3, d: 3 },
+            { x: 18, z: -20, w: 3, d: 3 },
+            { x: -20, z: 18, w: 3, d: 3 },
+            { x: 18, z: 18, w: 3, d: 3 }
         ]
     },
     {
         name: "The Spiral",
-        spawns: { seeker: { x: -30, z: 0 }, hider: { x: 30, z: 0 } },
+        spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x1a0a2e, wall: 0xff00ff, wallGlow: 0xff00ff, sky: 0x0f0520 },
         theme: 'psychedelic',
+        cameraZoom: 1.4,
         walls: [
-            // Spiral pattern walls
-            { x: -5, z: -30, w: 10, d: 2 },
-            { x: 3, z: -30, w: 2, d: 15 },
-            { x: -15, z: -17, w: 20, d: 2 },
-            { x: -15, z: -17, w: 2, d: 15 },
-            { x: -15, z: -4, w: 15, d: 2 },
-            { x: -2, z: -4, w: 2, d: 12 },
-            { x: -2, z: 6, w: 12, d: 2 },
-            { x: 8, z: 6, w: 2, d: 10 },
-            { x: -5, z: 14, w: 15, d: 2 },
-            { x: -5, z: 14, w: 2, d: 16 },
-            { x: -5, z: 28, w: 25, d: 2 },
-            { x: 18, z: 15, w: 2, d: 15 }
+            // Open spiral arms - not connected, always escapable
+            // Outer arm top-left
+            { x: -28, z: -28, w: 16, d: 2 },
+            { x: -28, z: -26, w: 2, d: 14 },
+            // Outer arm top-right
+            { x: 12, z: -28, w: 16, d: 2 },
+            { x: 26, z: -26, w: 2, d: 14 },
+            // Middle arm left
+            { x: -20, z: -8, w: 12, d: 2 },
+            { x: -20, z: -6, w: 2, d: 12 },
+            // Middle arm right
+            { x: 8, z: -8, w: 12, d: 2 },
+            { x: 18, z: -6, w: 2, d: 12 },
+            // Inner spiral pieces
+            { x: -10, z: 2, w: 10, d: 2 },
+            { x: 2, z: 2, w: 10, d: 2 },
+            // Bottom arms
+            { x: -28, z: 12, w: 14, d: 2 },
+            { x: -28, z: 14, w: 2, d: 14 },
+            { x: 14, z: 12, w: 14, d: 2 },
+            { x: 26, z: 14, w: 2, d: 14 },
+            // Bottom outer
+            { x: -20, z: 26, w: 14, d: 2 },
+            { x: 6, z: 26, w: 14, d: 2 }
         ]
     },
     {
@@ -612,69 +2056,111 @@ const BOARDS = [
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x2a2a2a, wall: 0x4a4a4a, wallHighlight: 0x666666, sky: 0x1a1a1a },
         theme: 'bunker',
+        cameraZoom: 1.4,
         walls: [
-            // Room 1 (top-left)
-            { x: -30, z: -30, w: 18, d: 2 },
-            { x: -30, z: -30, w: 2, d: 18 },
-            { x: -14, z: -20, w: 2, d: 10 },
-            // Room 2 (top-right)
-            { x: 12, z: -30, w: 18, d: 2 },
-            { x: 28, z: -30, w: 2, d: 18 },
-            { x: 12, z: -20, w: 2, d: 10 },
-            // Central corridor
-            { x: -8, z: -8, w: 16, d: 2 },
-            { x: -8, z: 6, w: 16, d: 2 },
-            // Room 3 (bottom-left)
-            { x: -30, z: 12, w: 2, d: 18 },
-            { x: -30, z: 28, w: 18, d: 2 },
-            { x: -14, z: 12, w: 2, d: 10 },
-            // Room 4 (bottom-right)
-            { x: 28, z: 12, w: 2, d: 18 },
-            { x: 12, z: 28, w: 18, d: 2 },
-            { x: 12, z: 12, w: 2, d: 10 }
+            // Outer bunker walls with wide entrances
+            { x: -32, z: -30, w: 20, d: 2 },
+            { x: 12, z: -30, w: 20, d: 2 },
+            { x: -32, z: 28, w: 20, d: 2 },
+            { x: 12, z: 28, w: 20, d: 2 },
+            // Side walls with gaps
+            { x: -32, z: -28, w: 2, d: 18 },
+            { x: -32, z: 12, w: 2, d: 18 },
+            { x: 30, z: -28, w: 2, d: 18 },
+            { x: 30, z: 12, w: 2, d: 18 },
+            // Interior L-shaped walls (open, not enclosed)
+            { x: -22, z: -18, w: 12, d: 2 },
+            { x: -22, z: -16, w: 2, d: 8 },
+            { x: 10, z: -18, w: 12, d: 2 },
+            { x: 20, z: -16, w: 2, d: 8 },
+            // Central dividers (short)
+            { x: -8, z: -5, w: 16, d: 2 },
+            { x: -8, z: 5, w: 16, d: 2 },
+            // Bottom L-shapes
+            { x: -22, z: 16, w: 12, d: 2 },
+            { x: -22, z: 10, w: 2, d: 8 },
+            { x: 10, z: 16, w: 12, d: 2 },
+            { x: 20, z: 10, w: 2, d: 8 },
+            // Small cover obstacles
+            { x: -5, z: -15, w: 4, d: 4 },
+            { x: 2, z: 12, w: 4, d: 4 }
         ]
     },
     {
         name: "The Ruins",
-        spawns: { seeker: { x: -28, z: 0 }, hider: { x: 28, z: 0 } },
+        spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x3d4a3d, wall: 0x6b8e6b, wallHighlight: 0x90ee90, sky: 0x4a6a4a },
         theme: 'ruins',
+        cameraZoom: 1.4,
         walls: [
-            // Scattered debris/ruins pattern
-            { x: -25, z: -20, w: 8, d: 3 },
-            { x: -10, z: -25, w: 4, d: 6 },
-            { x: 5, z: -22, w: 6, d: 4 },
-            { x: 20, z: -18, w: 5, d: 5 },
-            { x: -20, z: -5, w: 5, d: 4 },
-            { x: -5, z: -8, w: 10, d: 3 },
-            { x: 15, z: -5, w: 4, d: 8 },
-            { x: -22, z: 10, w: 6, d: 4 },
-            { x: -8, z: 5, w: 4, d: 6 },
-            { x: 8, z: 8, w: 5, d: 5 },
-            { x: 22, z: 5, w: 4, d: 7 },
-            { x: -15, z: 20, w: 7, d: 3 },
-            { x: 0, z: 18, w: 5, d: 5 },
-            { x: 15, z: 22, w: 6, d: 4 }
+            // Crumbling outer walls
+            { x: -30, z: -28, w: 18, d: 2 },
+            { x: -5, z: -30, w: 15, d: 2 },
+            { x: 18, z: -28, w: 12, d: 2 },
+            { x: -28, z: 25, w: 15, d: 2 },
+            { x: -5, z: 28, w: 20, d: 2 },
+            { x: 20, z: 26, w: 10, d: 2 },
+            { x: -30, z: -25, w: 2, d: 15 },
+            { x: -32, z: 0, w: 2, d: 18 },
+            { x: 28, z: -22, w: 2, d: 12 },
+            { x: 30, z: 5, w: 2, d: 20 },
+            // Ruined corridors
+            { x: -22, z: -18, w: 12, d: 2 },
+            { x: 5, z: -20, w: 15, d: 2 },
+            { x: -18, z: -8, w: 15, d: 2 },
+            { x: 8, z: -10, w: 12, d: 2 },
+            { x: -25, z: 2, w: 10, d: 2 },
+            { x: -5, z: 0, w: 18, d: 2 },
+            { x: 18, z: -2, w: 10, d: 2 },
+            { x: -20, z: 12, w: 12, d: 2 },
+            { x: 0, z: 10, w: 15, d: 2 },
+            { x: 20, z: 12, w: 8, d: 2 },
+            { x: -15, z: 20, w: 10, d: 2 },
+            { x: 5, z: 18, w: 12, d: 2 },
+            // Vertical ruins
+            { x: -20, z: -25, w: 2, d: 10 },
+            { x: -8, z: -22, w: 2, d: 15 },
+            { x: 10, z: -25, w: 2, d: 8 },
+            { x: 22, z: -18, w: 2, d: 12 },
+            { x: -25, z: -5, w: 2, d: 12 },
+            { x: -12, z: 5, w: 2, d: 15 },
+            { x: 5, z: -5, w: 2, d: 18 },
+            { x: 25, z: 5, w: 2, d: 15 },
+            { x: -18, z: 15, w: 2, d: 10 },
+            { x: 12, z: 12, w: 2, d: 12 }
         ]
     },
     {
         name: "The Arena",
-        spawns: { seeker: { x: -30, z: 0 }, hider: { x: 30, z: 0 } },
+        spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x2d5a2d, wall: 0xffffff, wallHighlight: 0xffff00, sky: 0x1a1a2e },
         theme: 'arena',
+        cameraZoom: 1.4,
         walls: [
-            // Lane dividers (horizontal corridors)
-            { x: -35, z: -20, w: 25, d: 2 },
-            { x: 10, z: -20, w: 25, d: 2 },
-            { x: -35, z: -8, w: 30, d: 2 },
-            { x: 5, z: -8, w: 30, d: 2 },
-            { x: -35, z: 6, w: 30, d: 2 },
-            { x: 5, z: 6, w: 30, d: 2 },
-            { x: -35, z: 18, w: 25, d: 2 },
-            { x: 10, z: 18, w: 25, d: 2 },
-            // Center obstacles
-            { x: -3, z: -15, w: 6, d: 3 },
-            { x: -3, z: 12, w: 6, d: 3 }
+            // Arena outer walls with wide gates
+            { x: -32, z: -28, w: 18, d: 2 },
+            { x: 14, z: -28, w: 18, d: 2 },
+            { x: -32, z: 26, w: 18, d: 2 },
+            { x: 14, z: 26, w: 18, d: 2 },
+            // Side walls with gaps
+            { x: -32, z: -26, w: 2, d: 16 },
+            { x: -32, z: 12, w: 2, d: 16 },
+            { x: 30, z: -26, w: 2, d: 16 },
+            { x: 30, z: 12, w: 2, d: 16 },
+            // Horizontal barriers (short, with gaps)
+            { x: -24, z: -14, w: 14, d: 2 },
+            { x: 10, z: -14, w: 14, d: 2 },
+            { x: -24, z: 12, w: 14, d: 2 },
+            { x: 10, z: 12, w: 14, d: 2 },
+            // Center obstacles (pillars)
+            { x: -8, z: -4, w: 4, d: 4 },
+            { x: 4, z: -4, w: 4, d: 4 },
+            { x: -2, z: 6, w: 4, d: 4 },
+            // Corner obstacles
+            { x: -22, z: -22, w: 4, d: 4 },
+            { x: 18, z: -22, w: 4, d: 4 },
+            { x: -22, z: 18, w: 4, d: 4 },
+            { x: 18, z: 18, w: 4, d: 4 }
         ]
     },
     {
@@ -682,18 +2168,44 @@ const BOARDS = [
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x000000, wall: 0x4400ff, wallGlow: 0x8800ff, sky: 0x000011 },
         theme: 'void',
+        cameraZoom: 1.4,
         walls: [
-            // Floating platform pattern
-            { x: -20, z: -20, w: 8, d: 8 },
-            { x: 12, z: -20, w: 8, d: 8 },
-            { x: -4, z: -12, w: 8, d: 8 },
-            { x: -25, z: -5, w: 6, d: 6 },
-            { x: 19, z: -5, w: 6, d: 6 },
-            { x: -12, z: 2, w: 6, d: 6 },
-            { x: 6, z: 2, w: 6, d: 6 },
-            { x: -4, z: 12, w: 8, d: 8 },
-            { x: -20, z: 18, w: 8, d: 8 },
-            { x: 12, z: 18, w: 8, d: 8 }
+            // Floating fragments - scattered platforms in void
+            { x: -28, z: -28, w: 6, d: 6 },
+            { x: -15, z: -30, w: 4, d: 4 },
+            { x: 5, z: -28, w: 5, d: 5 },
+            { x: 20, z: -32, w: 4, d: 4 },
+            { x: 30, z: -25, w: 5, d: 5 },
+            // Upper left cluster
+            { x: -32, z: -15, w: 5, d: 5 },
+            { x: -25, z: -8, w: 6, d: 3 },
+            { x: -18, z: -18, w: 4, d: 8 },
+            // Central void maze
+            { x: -12, z: -12, w: 8, d: 3 },
+            { x: -12, z: -5, w: 3, d: 10 },
+            { x: -5, z: 2, w: 10, d: 3 },
+            { x: 5, z: -8, w: 3, d: 12 },
+            { x: 8, z: -12, w: 8, d: 3 },
+            // Right side fragments
+            { x: 25, z: -12, w: 5, d: 5 },
+            { x: 32, z: -5, w: 4, d: 6 },
+            { x: 18, z: 0, w: 6, d: 4 },
+            // Lower fragments
+            { x: -30, z: 5, w: 5, d: 5 },
+            { x: -20, z: 12, w: 4, d: 4 },
+            { x: -28, z: 22, w: 6, d: 6 },
+            { x: -12, z: 18, w: 8, d: 3 },
+            { x: -5, z: 12, w: 3, d: 10 },
+            // Center-right maze
+            { x: 8, z: 8, w: 3, d: 10 },
+            { x: 12, z: 15, w: 10, d: 3 },
+            { x: 22, z: 10, w: 4, d: 4 },
+            { x: 30, z: 15, w: 5, d: 5 },
+            // Bottom row
+            { x: -15, z: 28, w: 5, d: 4 },
+            { x: 0, z: 25, w: 6, d: 6 },
+            { x: 15, z: 30, w: 5, d: 4 },
+            { x: 28, z: 25, w: 5, d: 5 }
         ]
     },
     {
@@ -701,25 +2213,43 @@ const BOARDS = [
         spawns: { seeker: { x: -28, z: 0 }, hider: { x: 28, z: 0 } },
         style: { floor: 0x333333, wall: 0x8b4513, sky: 0x1a1a2e },
         theme: 'streets',
+        cameraZoom: 1.4,
         walls: [
-            // Dumpsters (small, good hiding spots)
-            { x: -25, z: -20, w: 4, d: 3, type: 'dumpster' },
-            { x: 20, z: 15, w: 4, d: 3, type: 'dumpster' },
-            { x: -5, z: -25, w: 3, d: 4, type: 'dumpster' },
-            // Brick walls (long walls with graffiti)
-            { x: -20, z: -10, w: 15, d: 2, type: 'brick' },
-            { x: 5, z: -10, w: 15, d: 2, type: 'graffiti' },
-            { x: -15, z: 8, w: 12, d: 2, type: 'graffiti' },
-            { x: 8, z: 8, w: 12, d: 2, type: 'brick' },
-            // Crates/boxes
-            { x: -28, z: 10, w: 3, d: 3, type: 'crate' },
-            { x: 25, z: -15, w: 3, d: 3, type: 'crate' },
-            { x: 0, z: 20, w: 4, d: 4, type: 'crate' },
-            // Corner hideouts
-            { x: -28, z: -28, w: 5, d: 2 },
-            { x: -28, z: -26, w: 2, d: 5 },
-            { x: 23, z: -28, w: 5, d: 2 },
-            { x: 26, z: -26, w: 2, d: 5 }
+            // Building walls - left side
+            { x: -32, z: -30, w: 8, d: 12, type: 'brick' },
+            { x: -32, z: -10, w: 6, d: 8, type: 'brick' },
+            { x: -28, z: 8, w: 10, d: 14, type: 'graffiti' },
+            { x: -32, z: 28, w: 8, d: 10, type: 'brick' },
+            // Building walls - right side
+            { x: 24, z: -32, w: 10, d: 10, type: 'brick' },
+            { x: 28, z: -15, w: 8, d: 8, type: 'graffiti' },
+            { x: 24, z: 5, w: 10, d: 12, type: 'brick' },
+            { x: 28, z: 25, w: 8, d: 12, type: 'graffiti' },
+            // Alleyway walls - horizontal
+            { x: -18, z: -20, w: 14, d: 2, type: 'brick' },
+            { x: 5, z: -22, w: 12, d: 2, type: 'graffiti' },
+            { x: -12, z: -5, w: 16, d: 2, type: 'brick' },
+            { x: 8, z: -8, w: 10, d: 2, type: 'graffiti' },
+            { x: -15, z: 10, w: 12, d: 2, type: 'brick' },
+            { x: 6, z: 12, w: 10, d: 2, type: 'graffiti' },
+            { x: -10, z: 25, w: 14, d: 2, type: 'brick' },
+            // Alleyway walls - vertical
+            { x: -18, z: -30, w: 2, d: 10 },
+            { x: -8, z: -28, w: 2, d: 8 },
+            { x: 10, z: -32, w: 2, d: 10 },
+            { x: -20, z: 20, w: 2, d: 12 },
+            { x: 0, z: 18, w: 2, d: 10 },
+            { x: 15, z: 22, w: 2, d: 10 },
+            // Dumpsters
+            { x: -25, z: -22, w: 4, d: 3, type: 'dumpster' },
+            { x: 18, z: -28, w: 4, d: 3, type: 'dumpster' },
+            { x: -22, z: 0, w: 4, d: 3, type: 'dumpster' },
+            { x: 20, z: 18, w: 4, d: 3, type: 'dumpster' },
+            // Crates and obstacles
+            { x: -5, z: -15, w: 3, d: 3, type: 'crate' },
+            { x: -15, z: 5, w: 3, d: 3, type: 'crate' },
+            { x: 12, z: 2, w: 3, d: 3, type: 'crate' },
+            { x: 5, z: 28, w: 3, d: 3, type: 'crate' }
         ]
     },
     {
@@ -727,57 +2257,99 @@ const BOARDS = [
         spawns: { seeker: { x: -28, z: -28 }, hider: { x: 28, z: 28 } },
         style: { floor: 0x228b22, wall: 0x8b4513, sky: 0x87CEEB },
         theme: 'park',
+        cameraZoom: 1.4,
         walls: [
-            // Trees (circular-ish, scattered)
-            { x: -20, z: -15, w: 3, d: 3, type: 'tree' },
-            { x: -10, z: -22, w: 3, d: 3, type: 'tree' },
-            { x: 15, z: -18, w: 3, d: 3, type: 'tree' },
-            { x: 22, z: -8, w: 3, d: 3, type: 'tree' },
-            { x: -22, z: 5, w: 3, d: 3, type: 'tree' },
-            { x: -8, z: 12, w: 3, d: 3, type: 'tree' },
-            { x: 18, z: 20, w: 3, d: 3, type: 'tree' },
-            { x: 5, z: -5, w: 3, d: 3, type: 'tree' },
-            // Benches (long and thin)
-            { x: -15, z: 0, w: 6, d: 1.5, type: 'bench' },
-            { x: 12, z: 5, w: 6, d: 1.5, type: 'bench' },
-            // Bushes (smaller hiding spots)
-            { x: -5, z: 22, w: 4, d: 2, type: 'bush' },
-            { x: 8, z: -12, w: 2, d: 4, type: 'bush' },
-            { x: -18, z: 18, w: 3, d: 3, type: 'bush' }
+            // Tree clusters - northeast
+            { x: 25, z: -28, w: 4, d: 4, type: 'tree' },
+            { x: 30, z: -20, w: 3, d: 3, type: 'tree' },
+            { x: 20, z: -22, w: 3, d: 3, type: 'tree' },
+            // Tree clusters - northwest
+            { x: -28, z: -25, w: 4, d: 4, type: 'tree' },
+            { x: -32, z: -18, w: 3, d: 3, type: 'tree' },
+            { x: -22, z: -20, w: 3, d: 3, type: 'tree' },
+            // Tree clusters - southeast
+            { x: 28, z: 25, w: 4, d: 4, type: 'tree' },
+            { x: 22, z: 30, w: 3, d: 3, type: 'tree' },
+            { x: 32, z: 18, w: 3, d: 3, type: 'tree' },
+            // Tree clusters - southwest
+            { x: -25, z: 28, w: 4, d: 4, type: 'tree' },
+            { x: -30, z: 22, w: 3, d: 3, type: 'tree' },
+            { x: -20, z: 32, w: 3, d: 3, type: 'tree' },
+            // Central grove
+            { x: -5, z: -5, w: 4, d: 4, type: 'tree' },
+            { x: 5, z: 5, w: 4, d: 4, type: 'tree' },
+            { x: -8, z: 8, w: 3, d: 3, type: 'tree' },
+            { x: 8, z: -8, w: 3, d: 3, type: 'tree' },
+            // Hedge maze paths - horizontal
+            { x: -18, z: -10, w: 12, d: 2, type: 'bush' },
+            { x: 8, z: -12, w: 14, d: 2, type: 'bush' },
+            { x: -15, z: 12, w: 10, d: 2, type: 'bush' },
+            { x: 10, z: 10, w: 12, d: 2, type: 'bush' },
+            // Hedge maze paths - vertical
+            { x: -15, z: -20, w: 2, d: 10, type: 'bush' },
+            { x: 12, z: -25, w: 2, d: 12, type: 'bush' },
+            { x: -18, z: 20, w: 2, d: 12, type: 'bush' },
+            { x: 15, z: 18, w: 2, d: 10, type: 'bush' },
+            // Benches along paths
+            { x: -25, z: 0, w: 5, d: 2, type: 'bench' },
+            { x: 25, z: 0, w: 5, d: 2, type: 'bench' },
+            { x: 0, z: -25, w: 5, d: 2, type: 'bench' },
+            { x: 0, z: 25, w: 5, d: 2, type: 'bench' },
+            // Scattered bushes
+            { x: -10, z: -28, w: 3, d: 3, type: 'bush' },
+            { x: 10, z: 28, w: 3, d: 3, type: 'bush' },
+            { x: -32, z: 5, w: 3, d: 3, type: 'bush' },
+            { x: 32, z: -5, w: 3, d: 3, type: 'bush' }
         ]
     },
     {
         name: "The Bathroom",
-        spawns: { seeker: { x: -25, z: 0 }, hider: { x: 25, z: 0 } },
-        style: { floor: 0xd4cfc9, wall: 0x87ceeb, sky: 0xe6f3ff },
+        spawns: { seeker: { x: -15, z: -28 }, hider: { x: 15, z: 28 } },
+        style: { floor: 0xe8e8f0, wall: 0x87ceeb, sky: 0xe6f3ff },
         theme: 'bathroom',
+        cameraZoom: 1.3,
         walls: [
-            // Toilet stalls row (left side)
-            { x: -30, z: -25, w: 6, d: 8, type: 'toilet' },
-            { x: -30, z: -12, w: 6, d: 8, type: 'toilet' },
-            { x: -30, z: 1, w: 6, d: 8, type: 'toilet' },
+            // === GIANT RUBBER DUCKY (center - main hiding spot!) ===
+            { x: 0, z: 0, w: 12, d: 12, type: 'rubberducky' },
+
+            // === BATHTUB with bubbles (bottom right) ===
+            { x: 22, z: 22, w: 14, d: 10, type: 'bathtub' },
+
+            // === SHOWER AREA (top right corner) ===
+            { x: 28, z: -22, w: 10, d: 12, type: 'shower' },
+            // Shower glass walls
+            { x: 20, z: -22, w: 1, d: 12, type: 'glass' },
+            { x: 28, z: -14, w: 10, d: 1, type: 'glass' },
+
+            // === TOILET STALLS (left side) ===
+            { x: -30, z: -25, w: 6, d: 6, type: 'toilet' },
+            { x: -30, z: -10, w: 6, d: 6, type: 'toilet' },
+            { x: -30, z: 5, w: 6, d: 6, type: 'toilet' },
             // Stall dividers
-            { x: -22, z: -20, w: 1, d: 28 },
-            // Row of sinks (right side)
-            { x: 25, z: -25, w: 5, d: 4, type: 'sink' },
-            { x: 25, z: -15, w: 5, d: 4, type: 'sink' },
-            { x: 25, z: -5, w: 5, d: 4, type: 'sink' },
-            // Mirror wall behind sinks (thin wall)
-            { x: 32, z: -15, w: 1, d: 30 },
-            // Bathtub / Shower area (back corner)
-            { x: -25, z: 20, w: 12, d: 8, type: 'bathtub' },
-            // Shower curtains
-            { x: -12, z: 18, w: 1, d: 12, type: 'curtain' },
-            { x: 10, z: 22, w: 12, d: 1, type: 'curtain' },
-            // Central island (counter with supplies)
-            { x: -5, z: -5, w: 10, d: 6 },
-            // Paper towel dispensers / Hand dryers
-            { x: 20, z: 8, w: 3, d: 3, type: 'tproll' },
-            { x: 15, z: 20, w: 2, d: 2, type: 'tproll' },
-            // Trash bin
-            { x: -15, z: -18, w: 3, d: 3 },
-            // Wet floor sign area
-            { x: 5, z: 12, w: 4, d: 4 }
+            { x: -22, z: -18, w: 2, d: 20, type: 'stalldivider' },
+
+            // === SINKS with mirrors (top left) ===
+            { x: -22, z: -32, w: 5, d: 4, type: 'sink' },
+            { x: -10, z: -32, w: 5, d: 4, type: 'sink' },
+            { x: 2, z: -32, w: 5, d: 4, type: 'sink' },
+
+            // === SCATTERED FUN ELEMENTS ===
+            // Soap bar obstacles
+            { x: 15, z: -5, w: 3, d: 2, type: 'soap' },
+            { x: -15, z: 20, w: 3, d: 2, type: 'soap' },
+
+            // Towel racks (small obstacles)
+            { x: 32, z: 0, w: 2, d: 8, type: 'towelrack' },
+
+            // Toilet paper tower
+            { x: -20, z: 25, w: 4, d: 4, type: 'tptower' },
+
+            // Laundry basket
+            { x: 10, z: 28, w: 5, d: 5, type: 'laundrybasket' },
+
+            // Small puddles (floor hazards - very low)
+            { x: -5, z: 15, w: 4, d: 4, type: 'puddle' },
+            { x: 20, z: -5, w: 3, d: 3, type: 'puddle' }
         ]
     },
     {
@@ -785,27 +2357,46 @@ const BOARDS = [
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0xdeb887, wall: 0xffffff, sky: 0xfff8dc },
         theme: 'kitchen',
+        cameraZoom: 1.4,
         walls: [
-            // Giant fridge
-            { x: -25, z: -15, w: 8, d: 6, type: 'fridge' },
-            // Counter/island
-            { x: -5, z: -5, w: 14, d: 6, type: 'counter' },
-            // Giant cereal box
-            { x: 18, z: -20, w: 5, d: 3, type: 'cerealbox' },
-            // Spilled milk puddle area (slippery!)
-            { x: 8, z: 10, w: 6, d: 6, type: 'puddle' },
-            // Giant coffee mug
-            { x: -18, z: 15, w: 4, d: 4, type: 'mug' },
-            // Toaster
-            { x: 20, z: 8, w: 5, d: 4, type: 'toaster' },
-            // Fruit bowl obstacles
-            { x: -8, z: 20, w: 3, d: 3, type: 'fruit' },
-            { x: 0, z: -20, w: 3, d: 3, type: 'fruit' },
-            // Table legs (thin pillars)
-            { x: -20, z: -25, w: 2, d: 2 },
-            { x: -12, z: -25, w: 2, d: 2 },
-            { x: -20, z: -18, w: 2, d: 2 },
-            { x: -12, z: -18, w: 2, d: 2 }
+            // Left counter wall with appliances
+            { x: -32, z: -25, w: 6, d: 20, type: 'counter' },
+            { x: -28, z: 0, w: 8, d: 8, type: 'fridge' },
+            { x: -32, z: 12, w: 6, d: 10, type: 'counter' },
+            // Top counter wall
+            { x: -20, z: -32, w: 12, d: 6, type: 'counter' },
+            { x: -5, z: -30, w: 10, d: 8, type: 'counter' },
+            { x: 12, z: -32, w: 14, d: 6, type: 'counter' },
+            // Right side - stove and appliances
+            { x: 28, z: -22, w: 8, d: 10, type: 'counter' },
+            { x: 30, z: -8, w: 6, d: 8, type: 'toaster' },
+            { x: 28, z: 5, w: 8, d: 8, type: 'counter' },
+            { x: 30, z: 18, w: 6, d: 12, type: 'counter' },
+            // Central island
+            { x: -8, z: -10, w: 12, d: 6, type: 'counter' },
+            { x: 8, z: -5, w: 10, d: 6, type: 'counter' },
+            // Dining table area
+            { x: -15, z: 20, w: 14, d: 8, type: 'counter' },
+            { x: 5, z: 25, w: 12, d: 6, type: 'counter' },
+            // Table legs
+            { x: -22, z: 16, w: 2, d: 2 },
+            { x: -22, z: 28, w: 2, d: 2 },
+            { x: -8, z: 16, w: 2, d: 2 },
+            { x: -8, z: 28, w: 2, d: 2 },
+            { x: 12, z: 22, w: 2, d: 2 },
+            { x: 12, z: 30, w: 2, d: 2 },
+            // Cereal boxes and kitchen items
+            { x: 18, z: -18, w: 4, d: 3, type: 'cerealbox' },
+            { x: 22, z: -25, w: 3, d: 3, type: 'cerealbox' },
+            { x: -18, z: -20, w: 3, d: 3, type: 'fruit' },
+            // Coffee mugs and obstacles
+            { x: -20, z: 8, w: 4, d: 4, type: 'mug' },
+            { x: 15, z: 12, w: 4, d: 4, type: 'mug' },
+            { x: 0, z: 8, w: 5, d: 5, type: 'puddle' },
+            // Small obstacles
+            { x: -12, z: -22, w: 3, d: 3, type: 'fruit' },
+            { x: 10, z: -20, w: 3, d: 3 },
+            { x: 20, z: 28, w: 4, d: 4 }
         ]
     }
 ];
@@ -824,6 +2415,931 @@ dracoLoader.setDecoderPath('https://unpkg.com/three@0.140.0/examples/js/libs/dra
 
 // Track 3D model collisions
 let modelColliders = [];
+
+// Track swinging doors
+let doors = [];
+
+// Track portal pairs for teleportation
+let portals = [];
+let portalCooldown = 0; // Prevent instant re-teleport
+let portalTransition = {
+    active: false,
+    phase: 'none', // 'entering', 'traveling', 'exiting'
+    timer: 0,
+    targetX: 0,
+    targetZ: 0,
+    overlay: null
+};
+
+// Create a swinging door that opens when player approaches
+function createDoor(x, z, width = 3, height = 5, color = 0x8B4513, rotation = 0) {
+    const door = new THREE.Group();
+
+    // Door frame (slightly darker than door color)
+    const frameColor = new THREE.Color(color).multiplyScalar(0.6);
+    const frameGeometry = new THREE.BoxGeometry(width + 0.5, height + 0.3, 0.3);
+    const frameMaterial = new THREE.MeshStandardMaterial({ color: frameColor, roughness: 0.9 });
+    const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+    frame.position.y = height / 2;
+    door.add(frame);
+
+    // Door panel (pivots from left edge)
+    const panelGroup = new THREE.Group();
+    const panelGeometry = new THREE.BoxGeometry(width, height, 0.2);
+    const panelMaterial = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.7,
+        metalness: 0.1
+    });
+    const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+    panel.position.x = width / 2; // Offset so it pivots from edge
+    panel.position.y = height / 2;
+    panelGroup.add(panel);
+
+    // Door handle
+    const handleGeometry = new THREE.SphereGeometry(0.15, 8, 8);
+    const handleMaterial = new THREE.MeshStandardMaterial({ color: 0xc0c0c0, metalness: 0.8 });
+    const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+    handle.position.set(width - 0.3, height / 2, 0.15);
+    panelGroup.add(handle);
+
+    panelGroup.position.x = -width / 2; // Position pivot point at left edge
+    door.add(panelGroup);
+
+    door.position.set(x, 0, z);
+    door.rotation.y = rotation;
+    door.userData = {
+        isDoor: true,
+        panelGroup: panelGroup,
+        angle: 0,
+        targetAngle: 0,
+        width: width,
+        height: height,
+        swingSpeed: 0.08,
+        isOpen: false,
+        triggerDistance: width + 2
+    };
+
+    scene.add(door);
+    themeParticles.push(door);
+    doors.push(door);
+
+    return door;
+}
+
+// Update all doors (call in game loop)
+function updateDoors() {
+    if (!state.gameStarted) return;
+
+    doors.forEach(door => {
+        const data = door.userData;
+        const doorPos = door.position;
+
+        // Check distance to local player
+        let playerNearby = false;
+        const triggerDistance = data.triggerDistance || 4;
+
+        // Check local player position
+        if (state.player) {
+            const dx = state.player.x - doorPos.x;
+            const dz = state.player.z - doorPos.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < triggerDistance) {
+                playerNearby = true;
+            }
+        }
+
+        // Check opponent position
+        if (state.opponent) {
+            const dx = state.opponent.x - doorPos.x;
+            const dz = state.opponent.z - doorPos.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < triggerDistance) {
+                playerNearby = true;
+            }
+        }
+
+        // Open door if player nearby, close if not
+        if (playerNearby && !data.isOpen) {
+            data.targetAngle = Math.PI / 2; // Open 90 degrees
+            data.isOpen = true;
+        } else if (!playerNearby && data.isOpen) {
+            data.targetAngle = 0; // Close
+            data.isOpen = false;
+        }
+
+        // Smoothly animate door
+        if (Math.abs(data.angle - data.targetAngle) > 0.01) {
+            data.angle += (data.targetAngle - data.angle) * data.swingSpeed;
+            data.panelGroup.rotation.y = data.angle;
+        }
+    });
+}
+
+// Clear doors when changing boards
+function clearDoors() {
+    doors = [];
+}
+
+// Clear portals when changing boards
+function clearPortals() {
+    if (scene) {
+        portals.forEach(p => {
+            if (p.mesh) scene.remove(p.mesh);
+        });
+    }
+    portals = [];
+    portalCooldown = 0;
+}
+
+// Create portal pair on far left and right of arena
+function createPortals(board) {
+    // Portal positions at the edges of the arena
+    const portalRadius = CONFIG.ARENA_RADIUS - 3;
+    const leftX = -portalRadius;
+    const rightX = portalRadius;
+    const portalZ = 0;
+
+    // Get theme color for portals
+    const portalColor = board.style.wall || 0x00ffff;
+
+    // Create left portal
+    const leftPortal = createPortalMesh(leftX, portalZ, portalColor, 'left');
+    scene.add(leftPortal);
+
+    // Create right portal
+    const rightPortal = createPortalMesh(rightX, portalZ, portalColor, 'right');
+    scene.add(rightPortal);
+
+    // Store portal data
+    portals.push({
+        mesh: leftPortal,
+        x: leftX,
+        z: portalZ,
+        targetX: rightX - 5, // Spawn slightly inside from edge
+        targetZ: portalZ,
+        side: 'left'
+    });
+
+    portals.push({
+        mesh: rightPortal,
+        x: rightX,
+        z: portalZ,
+        targetX: leftX + 5, // Spawn slightly inside from edge
+        targetZ: portalZ,
+        side: 'right'
+    });
+}
+
+// Create a single portal mesh
+function createPortalMesh(x, z, color, side) {
+    const group = new THREE.Group();
+
+    // Portal ring (torus)
+    const ringGeometry = new THREE.TorusGeometry(4, 0.5, 16, 32);
+    const ringMaterial = new THREE.MeshStandardMaterial({
+        color: color,
+        emissive: color,
+        emissiveIntensity: 0.8,
+        metalness: 0.9,
+        roughness: 0.1
+    });
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    ring.rotation.y = Math.PI / 2; // Face sideways
+    ring.position.y = 4;
+    group.add(ring);
+
+    // Inner swirl effect (disc)
+    const swirlGeometry = new THREE.CircleGeometry(3.5, 32);
+    const swirlMaterial = new THREE.MeshBasicMaterial({
+        color: 0x000022,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide
+    });
+    const swirl = new THREE.Mesh(swirlGeometry, swirlMaterial);
+    swirl.rotation.y = Math.PI / 2;
+    swirl.position.y = 4;
+    group.add(swirl);
+
+    // Particle glow effect
+    const glowGeometry = new THREE.CircleGeometry(5, 32);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.3,
+        side: THREE.DoubleSide
+    });
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    glow.rotation.y = Math.PI / 2;
+    glow.position.y = 4;
+    group.add(glow);
+
+    // Add point light
+    const light = new THREE.PointLight(color, 1.5, 20);
+    light.position.y = 4;
+    group.add(light);
+
+    // Create particle system for constant light effects
+    const particleCount = 30;
+    const particles = [];
+    const particleGroup = new THREE.Group();
+
+    for (let i = 0; i < particleCount; i++) {
+        const particleGeometry = new THREE.SphereGeometry(0.15, 8, 8);
+        const particleMaterial = new THREE.MeshBasicMaterial({
+            color: color,
+            transparent: true,
+            opacity: 0.8
+        });
+        const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+
+        // Initialize particle position around portal
+        const angle = (i / particleCount) * Math.PI * 2;
+        const radius = 3 + Math.random() * 2;
+        particle.position.set(
+            (Math.random() - 0.5) * 2, // Slight X spread
+            4 + Math.sin(angle) * radius,
+            Math.cos(angle) * radius
+        );
+
+        particle.userData = {
+            angle: angle,
+            radius: radius,
+            speed: 0.5 + Math.random() * 1,
+            offset: Math.random() * Math.PI * 2,
+            baseY: 4
+        };
+
+        particleGroup.add(particle);
+        particles.push(particle);
+    }
+
+    group.add(particleGroup);
+
+    // Add secondary glow ring
+    const glowRingGeometry = new THREE.TorusGeometry(5, 0.2, 8, 32);
+    const glowRingMaterial = new THREE.MeshBasicMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.4
+    });
+    const glowRing = new THREE.Mesh(glowRingGeometry, glowRingMaterial);
+    glowRing.rotation.y = Math.PI / 2;
+    glowRing.position.y = 4;
+    group.add(glowRing);
+
+    // Add light rays emanating outward
+    const rayCount = 8;
+    const rayGroup = new THREE.Group();
+    for (let i = 0; i < rayCount; i++) {
+        const rayGeometry = new THREE.PlaneGeometry(0.3, 6);
+        const rayMaterial = new THREE.MeshBasicMaterial({
+            color: color,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide
+        });
+        const ray = new THREE.Mesh(rayGeometry, rayMaterial);
+        const rayAngle = (i / rayCount) * Math.PI * 2;
+        ray.position.set(0, 4, 0);
+        ray.rotation.y = Math.PI / 2;
+        ray.rotation.x = rayAngle;
+        ray.userData = { baseAngle: rayAngle };
+        rayGroup.add(ray);
+    }
+    group.add(rayGroup);
+
+    group.position.set(x, 0, z);
+    group.userData = {
+        isPortal: true,
+        side: side,
+        time: 0,
+        particles: particles,
+        particleGroup: particleGroup,
+        rayGroup: rayGroup,
+        color: color
+    };
+
+    return group;
+}
+
+// Animate portals (call in render loop)
+function updatePortals(deltaTime) {
+    portals.forEach(portal => {
+        if (portal.mesh && portal.mesh.userData) {
+            const userData = portal.mesh.userData;
+            userData.time += deltaTime * 2;
+            const t = userData.time;
+
+            // Rotate the main ring
+            const ring = portal.mesh.children[0];
+            if (ring) {
+                ring.rotation.z += deltaTime * 1.5;
+            }
+
+            // Pulse the glow disc
+            const glow = portal.mesh.children[2];
+            if (glow && glow.material) {
+                glow.material.opacity = 0.2 + Math.sin(t) * 0.15;
+                glow.scale.setScalar(1 + Math.sin(t * 2) * 0.1);
+            }
+
+            // Animate particles orbiting and floating outward
+            if (userData.particles) {
+                userData.particles.forEach((particle, i) => {
+                    const pData = particle.userData;
+                    pData.angle += deltaTime * pData.speed;
+
+                    // Orbit around portal center
+                    const orbitRadius = pData.radius + Math.sin(t + pData.offset) * 0.5;
+                    particle.position.y = pData.baseY + Math.sin(pData.angle) * orbitRadius;
+                    particle.position.z = Math.cos(pData.angle) * orbitRadius;
+
+                    // Float outward from portal (toward center of arena)
+                    const floatOut = Math.sin(t * 0.5 + pData.offset) * 3;
+                    particle.position.x = floatOut;
+
+                    // Pulse opacity
+                    particle.material.opacity = 0.4 + Math.sin(t * 2 + pData.offset) * 0.4;
+
+                    // Scale particles
+                    const scale = 0.8 + Math.sin(t * 3 + pData.offset) * 0.3;
+                    particle.scale.setScalar(scale);
+                });
+            }
+
+            // Rotate secondary glow ring (child index 5)
+            const glowRing = portal.mesh.children[5];
+            if (glowRing) {
+                glowRing.rotation.z -= deltaTime * 0.8;
+                glowRing.material.opacity = 0.3 + Math.sin(t * 1.5) * 0.2;
+            }
+
+            // Animate light rays (child index 6 is rayGroup)
+            if (userData.rayGroup) {
+                userData.rayGroup.rotation.x += deltaTime * 0.5;
+                userData.rayGroup.children.forEach((ray, i) => {
+                    // Pulse ray opacity
+                    ray.material.opacity = 0.2 + Math.sin(t * 2 + i * 0.5) * 0.15;
+                    // Scale rays in and out
+                    const rayScale = 1 + Math.sin(t * 1.5 + i * 0.3) * 0.3;
+                    ray.scale.y = rayScale;
+                });
+            }
+
+            // Pulse the point light intensity
+            const light = portal.mesh.children[3];
+            if (light && light.isLight) {
+                light.intensity = 1.2 + Math.sin(t * 2) * 0.5;
+            }
+        }
+    });
+
+    // Decrease portal cooldown
+    if (portalCooldown > 0) {
+        portalCooldown -= deltaTime;
+    }
+}
+
+// Check if player entered a portal and teleport them
+function checkPortalTeleport() {
+    if (portalCooldown > 0 || portalTransition.active) return;
+
+    const playerX = state.player.x;
+    const playerZ = state.player.z;
+    const teleportRadius = 4; // How close to portal center to trigger
+
+    for (const portal of portals) {
+        const dx = playerX - portal.x;
+        const dz = playerZ - portal.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+
+        if (dist < teleportRadius) {
+            // Start portal transition instead of instant teleport
+            startPortalTransition(portal.targetX, portal.targetZ);
+            break;
+        }
+    }
+}
+
+// Start the portal transition effect
+function startPortalTransition(targetX, targetZ) {
+    portalTransition.active = true;
+    portalTransition.phase = 'entering';
+    portalTransition.timer = 0;
+    portalTransition.targetX = targetX;
+    portalTransition.targetZ = targetZ;
+
+    // Play whoosh sound
+    if (SoundManager && SoundManager.playPortalWhoosh) {
+        SoundManager.playPortalWhoosh();
+    }
+
+    // Create screen overlay if it doesn't exist
+    if (!portalTransition.overlay) {
+        const overlay = document.createElement('div');
+        overlay.id = 'portal-overlay';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(100,0,255,0.9) 0%, rgba(0,0,0,0.95) 100%);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 1000;
+            transition: opacity 0.3s ease-in-out;
+        `;
+        document.body.appendChild(overlay);
+        portalTransition.overlay = overlay;
+    }
+
+    // Start fade in
+    setTimeout(() => {
+        if (portalTransition.overlay) {
+            portalTransition.overlay.style.opacity = '1';
+        }
+    }, 10);
+}
+
+// Update portal transition (call in game loop)
+function updatePortalTransition(deltaTime) {
+    if (!portalTransition.active) return;
+
+    portalTransition.timer += deltaTime;
+
+    const enterDuration = 0.4;  // Time to fade in
+    const travelDuration = 0.3; // Time in "void"
+    const exitDuration = 0.4;   // Time to fade out
+
+    if (portalTransition.phase === 'entering') {
+        // Freeze player movement during transition
+        if (portalTransition.timer >= enterDuration) {
+            portalTransition.phase = 'traveling';
+            portalTransition.timer = 0;
+
+            // Actually teleport the player now (while screen is black)
+            state.player.x = portalTransition.targetX;
+            state.player.z = portalTransition.targetZ;
+        }
+    } else if (portalTransition.phase === 'traveling') {
+        if (portalTransition.timer >= travelDuration) {
+            portalTransition.phase = 'exiting';
+            portalTransition.timer = 0;
+
+            // Start fade out
+            if (portalTransition.overlay) {
+                portalTransition.overlay.style.opacity = '0';
+            }
+        }
+    } else if (portalTransition.phase === 'exiting') {
+        if (portalTransition.timer >= exitDuration) {
+            // Transition complete
+            portalTransition.active = false;
+            portalTransition.phase = 'none';
+            portalTransition.timer = 0;
+
+            // Set cooldown to prevent instant re-teleport
+            portalCooldown = 0.5;
+        }
+    }
+}
+
+// Check if player is in portal transition (for movement blocking)
+function isInPortalTransition() {
+    return portalTransition.active;
+}
+
+// Clean up portal transition (call when leaving game)
+function cleanupPortalTransition() {
+    portalTransition.active = false;
+    portalTransition.phase = 'none';
+    portalTransition.timer = 0;
+    if (portalTransition.overlay) {
+        portalTransition.overlay.style.opacity = '0';
+    }
+}
+
+// ========== HIDING PROPS SYSTEM ==========
+
+// Create a wooden crate/box
+function createCrate(x, z, size = 2, color = 0x8B4513) {
+    const group = new THREE.Group();
+
+    // Main box
+    const boxGeometry = new THREE.BoxGeometry(size, size, size);
+    const boxMaterial = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.9,
+        metalness: 0.1
+    });
+    const box = new THREE.Mesh(boxGeometry, boxMaterial);
+    box.position.y = size / 2;
+    box.castShadow = true;
+    box.receiveShadow = true;
+    group.add(box);
+
+    // Add wooden plank details
+    const plankMaterial = new THREE.MeshStandardMaterial({
+        color: 0x5c4033,
+        roughness: 0.95
+    });
+    // Horizontal planks
+    for (let i = 0; i < 3; i++) {
+        const plank = new THREE.Mesh(
+            new THREE.BoxGeometry(size + 0.1, 0.15, 0.1),
+            plankMaterial
+        );
+        plank.position.set(0, size * 0.2 + i * size * 0.3, size / 2 + 0.05);
+        group.add(plank);
+    }
+
+    group.position.set(x, 0, z);
+    scene.add(group);
+    themeParticles.push(group);
+
+    // Add collision
+    modelColliders.push({ x: x, z: z, radius: size * 0.7 });
+
+    return group;
+}
+
+// Create a barrel
+function createBarrel(x, z, radius = 1, height = 2.5, color = 0x654321) {
+    const group = new THREE.Group();
+
+    // Main barrel body
+    const barrelGeometry = new THREE.CylinderGeometry(radius, radius * 0.9, height, 16);
+    const barrelMaterial = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.8,
+        metalness: 0.1
+    });
+    const barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
+    barrel.position.y = height / 2;
+    barrel.castShadow = true;
+    barrel.receiveShadow = true;
+    group.add(barrel);
+
+    // Metal bands
+    const bandMaterial = new THREE.MeshStandardMaterial({
+        color: 0x333333,
+        metalness: 0.6,
+        roughness: 0.4
+    });
+    for (let i = 0; i < 3; i++) {
+        const band = new THREE.Mesh(
+            new THREE.TorusGeometry(radius + 0.02, 0.08, 8, 24),
+            bandMaterial
+        );
+        band.position.y = height * 0.15 + i * height * 0.35;
+        band.rotation.x = Math.PI / 2;
+        group.add(band);
+    }
+
+    group.position.set(x, 0, z);
+    scene.add(group);
+    themeParticles.push(group);
+
+    // Add collision
+    modelColliders.push({ x: x, z: z, radius: radius + 0.3 });
+
+    return group;
+}
+
+// Create a bush
+function createBush(x, z, size = 1.5, color = 0x228B22) {
+    const group = new THREE.Group();
+
+    // Multiple spheres for bushy look
+    const bushMaterial = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.9
+    });
+
+    const sphereCount = 5 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < sphereCount; i++) {
+        const sphereSize = size * (0.6 + Math.random() * 0.5);
+        const sphere = new THREE.Mesh(
+            new THREE.SphereGeometry(sphereSize, 8, 8),
+            bushMaterial
+        );
+        sphere.position.set(
+            (Math.random() - 0.5) * size,
+            sphereSize * 0.8 + Math.random() * size * 0.3,
+            (Math.random() - 0.5) * size
+        );
+        sphere.castShadow = true;
+        group.add(sphere);
+    }
+
+    group.position.set(x, 0, z);
+    scene.add(group);
+    themeParticles.push(group);
+
+    // Add collision
+    modelColliders.push({ x: x, z: z, radius: size + 0.5 });
+
+    return group;
+}
+
+// Create a dumpster (for streets)
+function createDumpster(x, z, rotation = 0) {
+    const group = new THREE.Group();
+
+    // Main dumpster body
+    const bodyGeometry = new THREE.BoxGeometry(4, 2.5, 2.5);
+    const bodyMaterial = new THREE.MeshStandardMaterial({
+        color: 0x2d5a27,
+        roughness: 0.7,
+        metalness: 0.3
+    });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.position.y = 1.25;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    group.add(body);
+
+    // Lid (slightly open)
+    const lidGeometry = new THREE.BoxGeometry(4, 0.2, 2.5);
+    const lid = new THREE.Mesh(lidGeometry, bodyMaterial);
+    lid.position.set(0, 2.6, -0.8);
+    lid.rotation.x = -0.3;
+    group.add(lid);
+
+    // Wheels
+    const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    const wheelPositions = [
+        { x: -1.5, z: 1 }, { x: 1.5, z: 1 },
+        { x: -1.5, z: -1 }, { x: 1.5, z: -1 }
+    ];
+    wheelPositions.forEach(pos => {
+        const wheel = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.3, 0.3, 0.2, 12),
+            wheelMaterial
+        );
+        wheel.position.set(pos.x, 0.3, pos.z);
+        wheel.rotation.x = Math.PI / 2;
+        group.add(wheel);
+    });
+
+    group.position.set(x, 0, z);
+    group.rotation.y = rotation;
+    scene.add(group);
+    themeParticles.push(group);
+
+    // Add collision
+    modelColliders.push({ x: x, z: z, radius: 2.5 });
+
+    return group;
+}
+
+// Create lockers (for bunker/bathroom)
+function createLockers(x, z, count = 4, color = 0x555555) {
+    const group = new THREE.Group();
+
+    const lockerWidth = 1;
+    const lockerHeight = 4;
+    const lockerDepth = 1.5;
+
+    for (let i = 0; i < count; i++) {
+        const lockerGeometry = new THREE.BoxGeometry(lockerWidth, lockerHeight, lockerDepth);
+        const lockerMaterial = new THREE.MeshStandardMaterial({
+            color: color,
+            metalness: 0.5,
+            roughness: 0.5
+        });
+        const locker = new THREE.Mesh(lockerGeometry, lockerMaterial);
+        locker.position.set(i * (lockerWidth + 0.1), lockerHeight / 2, 0);
+        locker.castShadow = true;
+        group.add(locker);
+
+        // Add vent slits
+        const ventMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
+        for (let v = 0; v < 5; v++) {
+            const vent = new THREE.Mesh(
+                new THREE.BoxGeometry(lockerWidth * 0.6, 0.08, 0.05),
+                ventMaterial
+            );
+            vent.position.set(i * (lockerWidth + 0.1), lockerHeight * 0.7 + v * 0.15, lockerDepth / 2 + 0.03);
+            group.add(vent);
+        }
+
+        // Add handle
+        const handleMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.8 });
+        const handle = new THREE.Mesh(
+            new THREE.BoxGeometry(0.1, 0.4, 0.1),
+            handleMaterial
+        );
+        handle.position.set(i * (lockerWidth + 0.1) + lockerWidth * 0.3, lockerHeight * 0.5, lockerDepth / 2 + 0.08);
+        group.add(handle);
+    }
+
+    // Center the group
+    group.position.set(x - (count * lockerWidth) / 2, 0, z);
+    scene.add(group);
+    themeParticles.push(group);
+
+    // Add collision
+    modelColliders.push({ x: x, z: z, radius: count * 0.8 });
+
+    return group;
+}
+
+// Create a pile of rubble (for ruins)
+function createRubble(x, z, size = 3) {
+    const group = new THREE.Group();
+
+    const stoneMaterial = new THREE.MeshStandardMaterial({
+        color: 0x808080,
+        roughness: 0.95
+    });
+
+    // Random stone shapes
+    for (let i = 0; i < 8 + Math.floor(Math.random() * 5); i++) {
+        const stoneSize = size * (0.3 + Math.random() * 0.5);
+        const stone = new THREE.Mesh(
+            new THREE.DodecahedronGeometry(stoneSize, 0),
+            stoneMaterial
+        );
+        stone.position.set(
+            (Math.random() - 0.5) * size * 1.5,
+            stoneSize * 0.3 + Math.random() * 0.5,
+            (Math.random() - 0.5) * size * 1.5
+        );
+        stone.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            Math.random() * Math.PI
+        );
+        stone.castShadow = true;
+        group.add(stone);
+    }
+
+    group.position.set(x, 0, z);
+    scene.add(group);
+    themeParticles.push(group);
+
+    // Add collision
+    modelColliders.push({ x: x, z: z, radius: size });
+
+    return group;
+}
+
+// ========== DUST PARTICLE SYSTEM ==========
+const DUST_CONFIG = {
+    maxParticles: 30,
+    spawnDistance: 5,      // How close to objects before dust spawns
+    minSpeed: 2,           // Minimum player speed to trigger dust
+    particleLife: 1500,    // How long dust lives (ms)
+    spawnRate: 100         // ms between dust spawns
+};
+let lastDustSpawn = 0;
+
+// Create a single dust particle
+function createDustParticle(x, y, z, boardColor = 0xccaa88) {
+    const size = 0.15 + Math.random() * 0.2;
+    const geometry = new THREE.SphereGeometry(size, 6, 6);
+    const material = new THREE.MeshBasicMaterial({
+        color: boardColor,
+        transparent: true,
+        opacity: 0.6
+    });
+    const dust = new THREE.Mesh(geometry, material);
+    dust.position.set(x, y, z);
+
+    dust.userData = {
+        velocityX: (Math.random() - 0.5) * 0.1,
+        velocityY: 0.02 + Math.random() * 0.03,
+        velocityZ: (Math.random() - 0.5) * 0.1,
+        life: DUST_CONFIG.particleLife,
+        startTime: Date.now(),
+        startOpacity: 0.6
+    };
+
+    scene.add(dust);
+    dustParticles.push(dust);
+
+    return dust;
+}
+
+// Spawn dust near player when close to objects
+function spawnDustNearObjects(playerX, playerZ, playerSpeed) {
+    const now = Date.now();
+
+    // Rate limiting
+    if (now - lastDustSpawn < DUST_CONFIG.spawnRate) return;
+    if (playerSpeed < DUST_CONFIG.minSpeed) return;
+    if (dustParticles.length >= DUST_CONFIG.maxParticles) return;
+
+    // Get board-appropriate dust color
+    const dustColors = {
+        0: 0x8B7355,   // Garden - brown/dirt
+        1: 0x4a4a4a,   // Haunted - gray ash
+        2: 0x00aaaa,   // Neon - cyan particles
+        3: 0x8B7355,   // Fortress - stone dust
+        4: 0x888888,   // Spiral - neutral
+        5: 0x606060,   // Bunker - concrete
+        6: 0x808080,   // Ruins - stone
+        7: 0x555555,   // Arena - floor dust
+        8: 0x333333,   // Void - dark
+        9: 0x5a5a5a,   // Streets - asphalt
+        10: 0x7a6a4a,  // Park - dirt
+        11: 0xcccccc   // Bathroom - white tile dust
+    };
+    const dustColor = dustColors[state.currentBoard] || 0xccaa88;
+
+    // Check proximity to objects (walls + model colliders)
+    let nearObject = false;
+
+    // Check model colliders (hiding props)
+    for (const collider of modelColliders) {
+        const dx = playerX - collider.x;
+        const dz = playerZ - collider.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+
+        if (dist < collider.radius + DUST_CONFIG.spawnDistance) {
+            nearObject = true;
+            break;
+        }
+    }
+
+    // Also check if near walls
+    if (!nearObject && walls) {
+        for (const wall of walls) {
+            const wx = wall.position.x;
+            const wz = wall.position.z;
+            const dist = Math.sqrt((playerX - wx) ** 2 + (playerZ - wz) ** 2);
+
+            if (dist < 8) {
+                nearObject = true;
+                break;
+            }
+        }
+    }
+
+    if (nearObject) {
+        lastDustSpawn = now;
+
+        // Spawn 2-4 particles
+        const count = 2 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < count; i++) {
+            const offsetX = (Math.random() - 0.5) * 2;
+            const offsetZ = (Math.random() - 0.5) * 2;
+            createDustParticle(
+                playerX + offsetX,
+                0.2 + Math.random() * 0.5,
+                playerZ + offsetZ,
+                dustColor
+            );
+        }
+    }
+}
+
+// Update dust particles (call in game loop)
+function updateDustParticles() {
+    const now = Date.now();
+
+    for (let i = dustParticles.length - 1; i >= 0; i--) {
+        const dust = dustParticles[i];
+        const data = dust.userData;
+        const age = now - data.startTime;
+
+        // Remove old particles
+        if (age >= data.life) {
+            scene.remove(dust);
+            dust.geometry.dispose();
+            dust.material.dispose();
+            dustParticles.splice(i, 1);
+            continue;
+        }
+
+        // Update position (float upward and drift)
+        dust.position.x += data.velocityX;
+        dust.position.y += data.velocityY;
+        dust.position.z += data.velocityZ;
+
+        // Fade out over time
+        const lifeProgress = age / data.life;
+        dust.material.opacity = data.startOpacity * (1 - lifeProgress);
+
+        // Slow down
+        data.velocityX *= 0.98;
+        data.velocityZ *= 0.98;
+    }
+}
+
+// Clear dust particles (when changing boards)
+function clearDustParticles() {
+    for (const dust of dustParticles) {
+        scene.remove(dust);
+        dust.geometry.dispose();
+        dust.material.dispose();
+    }
+    dustParticles = [];
+}
 
 // Helper function to load 3D models for board decorations
 function loadBoardModel(path, x, z, scale = 1, rotationY = 0, collisionRadius = null, yOffset = 0) {
@@ -926,6 +3442,7 @@ const state = {
     seekerFrozen: false,    // Is seeker frozen by freeze powerup
     hiderInvisible: false,  // Is hider invisible
     hiderSpeedBoosted: false, // Is hider speed boosted
+    hiderPhaseWalk: false,  // Is hider in phase walk mode (can walk through walls)
     lastPowerupSpawn: 0     // Timestamp of last powerup spawn
 };
 
@@ -940,6 +3457,7 @@ let seekerBoostModel, seekerBoostAnimations;
 let seekerCelebrateModel, seekerCelebrateAnimations;
 let hiderModel, hiderAnimations;
 let hiderCelebrateModel, hiderCelebrateAnimations;
+let penguinCelebrateModel, penguinCelebrateAnimations;
 let wallMeshes = [];
 let collectibleMeshes = [];  // Coin and powerup 3D meshes
 let floorMesh;
@@ -1007,6 +3525,7 @@ function initThreeJS() {
     loadSeekerCelebrateModel();
     loadHiderModel();
     loadHiderCelebrateModel();
+    loadPenguinCelebrateModel();
 
     // Window resize
     window.addEventListener('resize', onWindowResize);
@@ -1027,9 +3546,10 @@ function setupVisionCone() {
     }
 
     // Create spotlight for vision cone illumination
-    // Angle matches CONFIG.SEEKER_VIEW_ANGLE (72 degrees = Math.PI / 2.5)
-    const coneAngle = CONFIG.SEEKER_VIEW_ANGLE; // ~72 degrees half-angle
-    visionConeLight = new THREE.SpotLight(0xffffee, 4, CONFIG.SEEKER_VIEW_RANGE + 10, coneAngle, 0.2, 0.8);
+    // Use a fixed visual angle for the cone display (not the gameplay angle which is wider)
+    const visualConeAngle = Math.PI / 6; // 30 degrees half-angle for visual cone (60 degree total FOV)
+    const gameplayAngle = CONFIG.SEEKER_VIEW_ANGLE; // Gameplay detection uses wider angle
+    visionConeLight = new THREE.SpotLight(0xffffee, 4, CONFIG.SEEKER_VIEW_RANGE + 10, visualConeAngle, 0.3, 0.8);
     visionConeLight.castShadow = true;
     visionConeLight.shadow.mapSize.width = 1024;
     visionConeLight.shadow.mapSize.height = 1024;
@@ -1042,9 +3562,18 @@ function setupVisionCone() {
     scene.add(visionConeTarget);
 
     // Create visible cone mesh for visual feedback
+    // Use fixed dimensions that look good visually and stay consistent across all boards
     const coneLength = CONFIG.SEEKER_VIEW_RANGE;
-    const coneRadius = Math.tan(coneAngle) * coneLength;
+    const coneRadius = 12; // Fixed radius for consistent visual appearance
     const coneGeometry = new THREE.ConeGeometry(coneRadius, coneLength, 32, 1, true);
+
+    // IMPORTANT: Transform geometry so apex (point) is at origin, cone extends along +X
+    // ConeGeometry default: apex at +height/2, base at -height/2, cone pointing DOWN
+    // Step 1: Translate so apex is at origin
+    coneGeometry.translate(0, -coneLength / 2, 0);
+    // Step 2: Rotate so cone points along +X axis (playerAngle=0 is +X direction)
+    coneGeometry.rotateZ(-Math.PI / 2);
+
     const coneMaterial = new THREE.MeshBasicMaterial({
         color: 0xffff66,
         transparent: true,
@@ -1150,11 +3679,13 @@ function deactivateVisionCone() {
 function updateVisionCone() {
     if (!isVisionConeActive || !visionConeLight || !visionConeMesh) return;
 
-    const playerX = state.player.x;
-    const playerZ = state.player.z;
+    // Use playerMesh position if available, fallback to state.player
+    // This ensures vision cone always follows the visible character
+    const playerX = playerMesh ? playerMesh.position.x : state.player.x;
+    const playerZ = playerMesh ? playerMesh.position.z : state.player.z;
     const playerAngle = state.player.angle;
 
-    // Position spotlight at player's head height
+    // Position spotlight at player position
     visionConeLight.position.set(playerX, 3, playerZ);
 
     // Point spotlight in facing direction
@@ -1163,20 +3694,17 @@ function updateVisionCone() {
     const targetZ = playerZ + Math.sin(playerAngle) * targetDistance;
     visionConeTarget.position.set(targetX, 1, targetZ);
 
-    // Update cone mesh position and rotation
-    // Cone points along -Y by default, we need to rotate it to point forward
-    visionConeMesh.position.set(playerX, 2, playerZ);
+    // Position cone mesh at player's face (apex is at origin due to geometry translation)
+    // Add small offset in facing direction to place apex at front of character
+    const faceOffset = 1.5;
+    const faceX = playerX + Math.cos(playerAngle) * faceOffset;
+    const faceZ = playerZ + Math.sin(playerAngle) * faceOffset;
+    visionConeMesh.position.set(faceX, 2, faceZ);
 
     // Rotate cone to point in facing direction
-    // First rotate 90 degrees on X to make it horizontal, then rotate on Y for direction
-    visionConeMesh.rotation.set(0, 0, 0);
-    visionConeMesh.rotation.x = Math.PI / 2; // Make horizontal
-    visionConeMesh.rotation.z = -playerAngle + Math.PI; // Point in facing direction
-
-    // Offset cone so base is at player
-    const coneLength = CONFIG.SEEKER_VIEW_RANGE;
-    visionConeMesh.position.x += Math.cos(playerAngle) * (coneLength / 2);
-    visionConeMesh.position.z += Math.sin(playerAngle) * (coneLength / 2);
+    // Geometry is pre-rotated: apex at origin, cone extends along +X axis
+    // Just rotate around Y axis to match playerAngle (which uses cos for X, sin for Z)
+    visionConeMesh.rotation.set(0, playerAngle, 0);
 
     // Update glow ring position at player feet
     if (visionConeMesh.userData.glowRing) {
@@ -1184,9 +3712,30 @@ function updateVisionCone() {
     }
 }
 
-function loadSeekerModel() {
+function loadSeekerModel(usePlayerSkin = false, aiSkin = null) {
     const loader = new THREE.GLTFLoader();
-    loader.load('images/Characters/Meshy_AI_biped/Meshy_AI_Animation_Walking_withSkin.glb',
+    loader.setDRACOLoader(dracoLoader);
+
+    // Determine which skin to use
+    let modelPath = 'images/Characters/Meshy_AI_biped/Meshy_AI_Animation_Walking_withSkin.glb';
+    let skinToUse = null;
+
+    if (usePlayerSkin) {
+        // Player's character - use their selected skin
+        const selectedSkin = StoreManager.getSelectedSkin();
+        if (selectedSkin && selectedSkin.id !== 'default_seeker' && selectedSkin.id !== 'default_hider') {
+            modelPath = selectedSkin.path;
+            skinToUse = selectedSkin;
+        }
+    } else if (aiSkin) {
+        // AI character - use the provided AI skin
+        modelPath = aiSkin.path;
+        skinToUse = aiSkin;
+    }
+
+    console.log('Loading seeker model from:', modelPath, '(usePlayerSkin:', usePlayerSkin, ', aiSkin:', aiSkin?.name, ')');
+
+    loader.load(modelPath,
         (gltf) => {
             seekerModel = gltf.scene;
             seekerModel.scale.set(5, 5, 5);
@@ -1272,9 +3821,30 @@ function loadSeekerCelebrateModel() {
     );
 }
 
-function loadHiderModel() {
+function loadHiderModel(usePlayerSkin = false, aiSkin = null) {
     const loader = new THREE.GLTFLoader();
-    loader.load('images/Characters/Meshy_AI_biped/kid 5 - run.glb',
+    loader.setDRACOLoader(dracoLoader);
+
+    // Determine which skin to use
+    let modelPath = 'images/Characters/Meshy_AI_biped/kid 5 - run.glb';
+    let skinToUse = null;
+
+    if (usePlayerSkin) {
+        // Player's character - use their selected skin
+        const selectedSkin = StoreManager.getSelectedSkin();
+        if (selectedSkin && selectedSkin.id !== 'default_seeker' && selectedSkin.id !== 'default_hider') {
+            modelPath = selectedSkin.path;
+            skinToUse = selectedSkin;
+        }
+    } else if (aiSkin) {
+        // AI character - use the provided AI skin
+        modelPath = aiSkin.path;
+        skinToUse = aiSkin;
+    }
+
+    console.log('Loading hider model from:', modelPath, '(usePlayerSkin:', usePlayerSkin, ', aiSkin:', aiSkin?.name, ')');
+
+    loader.load(modelPath,
         (gltf) => {
             hiderModel = gltf.scene;
             hiderModel.scale.set(5, 5, 5);
@@ -1340,6 +3910,128 @@ function loadHiderCelebrateModel() {
     );
 }
 
+function loadPenguinCelebrateModel() {
+    const loader = new THREE.GLTFLoader();
+    if (typeof dracoLoader !== 'undefined') {
+        loader.setDRACOLoader(dracoLoader);
+    }
+    const modelPath = 'images/Characters/Upgrade Store Characters/Penguin All/Meshy_AI_Animation_You_Groove_withSkin.glb';
+    console.log('Loading penguin celebrate model from:', modelPath);
+    loader.load(modelPath,
+        (gltf) => {
+            penguinCelebrateModel = gltf.scene;
+            penguinCelebrateModel.scale.set(6, 6, 6);
+            penguinCelebrateModel.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            if (gltf.animations && gltf.animations.length > 0) {
+                penguinCelebrateAnimations = gltf.animations;
+                console.log('Penguin celebrate animations found:', gltf.animations.map(a => a.name));
+            } else {
+                console.warn('No animations in penguin celebrate model!');
+            }
+
+            console.log('Penguin celebrate model loaded successfully!');
+        },
+        (progress) => {
+            if (progress.total) {
+                console.log('Loading penguin celebrate:', Math.round(progress.loaded / progress.total * 100) + '%');
+            }
+        },
+        (error) => {
+            console.error('FAILED to load penguin celebrate model:', error);
+            penguinCelebrateModel = null;
+        }
+    );
+}
+
+// Reload player models with currently selected skin from store
+// The selected skin is ALWAYS used for YOUR character, regardless of role
+// Returns true if loading a custom skin (async), false if using default
+function reloadPlayerModels(onComplete) {
+    const selectedSkin = StoreManager.getSelectedSkin();
+    console.log('Reloading player models with skin:', selectedSkin ? selectedSkin.name : 'default');
+    console.log('Player role:', state.role);
+
+    // Only reload if a non-default skin is selected
+    if (selectedSkin && selectedSkin.id !== 'default_seeker' && selectedSkin.id !== 'default_hider') {
+        const loader = new THREE.GLTFLoader();
+        loader.setDRACOLoader(dracoLoader);
+
+        console.log('Loading custom skin from:', selectedSkin.path);
+
+        // Get scale for this skin (some skins need different sizes)
+        const skinScale = selectedSkin.scale || 6; // Default to 6 (slightly bigger than before)
+
+        loader.load(selectedSkin.path,
+            (gltf) => {
+                const newModel = gltf.scene;
+                newModel.scale.set(skinScale, skinScale, skinScale);
+                newModel.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                // Store animations
+                const newAnimations = gltf.animations || [];
+
+                // ALWAYS apply selected skin to the PLAYER's character
+                // If player is seeker, update seekerModel
+                // If player is hider, update hiderModel
+                if (state.role === 'seeker') {
+                    seekerModel = newModel;
+                    if (newAnimations.length > 0) {
+                        seekerAnimations = newAnimations;
+                    }
+                    console.log('Applied custom skin to SEEKER (player)');
+                } else {
+                    hiderModel = newModel;
+                    if (newAnimations.length > 0) {
+                        hiderAnimations = newAnimations;
+                    }
+                    console.log('Applied custom skin to HIDER (player)');
+                }
+
+                console.log('Custom skin loaded successfully! Scale:', skinScale);
+
+                // Call completion callback if provided (for initial game start)
+                if (onComplete) {
+                    onComplete();
+                } else if (state.gameStarted && playerMesh) {
+                    // IMPORTANT: Recreate player mesh now that the model is loaded
+                    // This ensures the player uses the new skin
+                    const oldPosition = { x: playerMesh.position.x, y: playerMesh.position.y, z: playerMesh.position.z };
+                    const oldRotation = playerMesh.rotation.y;
+                    createPlayers();
+                    // Restore position AND sync state.player to prevent vision cone disconnect
+                    if (playerMesh) {
+                        playerMesh.position.set(oldPosition.x, oldPosition.y, oldPosition.z);
+                        playerMesh.rotation.y = oldRotation;
+                        // CRITICAL: Sync state.player with mesh position
+                        state.player.x = oldPosition.x;
+                        state.player.z = oldPosition.z;
+                    }
+                    console.log('Player mesh recreated with new skin!');
+                }
+            },
+            (progress) => {},
+            (error) => {
+                console.error('Error loading custom skin:', error);
+                // Still call completion on error to not block the game
+                if (onComplete) onComplete();
+            }
+        );
+        return true; // Loading custom skin
+    }
+    return false; // Using default skin
+}
+
 function createArena() {
     // Clear existing
     wallMeshes.forEach(w => scene.remove(w));
@@ -1352,15 +4044,38 @@ function createArena() {
     themeLights.forEach(l => scene.remove(l));
     themeLights = [];
     clearModelColliders();
+    clearDoors();
+    clearPortals();
 
     // Clear dust particles and glows
-    dustParticles.forEach(p => scene.remove(p));
-    dustParticles = [];
+    clearDustParticles();
     if (playerGlow) { scene.remove(playerGlow); playerGlow = null; }
     if (opponentGlow) { scene.remove(opponentGlow); opponentGlow = null; }
 
     const board = BOARDS[currentBoardIndex];
-    currentBoard = board;
+
+    // Filter walls to ensure portal clearance (portals at x = ±37, z = 0)
+    // Only filter walls that directly block the portal entrance zone
+    const portalZone = 5; // Narrow zone right at portal entrance
+    const filteredWalls = board.walls.filter(wall => {
+        const wallLeft = wall.x;
+        const wallRight = wall.x + wall.w;
+        const wallTop = wall.z;
+        const wallBottom = wall.z + wall.d;
+
+        // Check if wall blocks left portal entrance (x around -35 to -37, z near 0)
+        const blocksLeftPortal = wallLeft < -33 && wallRight > -38 &&
+            wallTop < portalZone && wallBottom > -portalZone;
+
+        // Check if wall blocks right portal entrance (x around 35 to 37, z near 0)
+        const blocksRightPortal = wallRight > 33 && wallLeft < 38 &&
+            wallTop < portalZone && wallBottom > -portalZone;
+
+        return !blocksLeftPortal && !blocksRightPortal;
+    });
+
+    // Create board copy with filtered walls
+    currentBoard = { ...board, walls: filteredWalls };
 
     // Set sky color based on theme
     const skyColor = board.style.sky || 0x87CEEB;
@@ -1405,6 +4120,9 @@ function createArena() {
 
     // Create walls based on theme
     createThemedWalls(board);
+
+    // Create portals on far left and right
+    createPortals(board);
 
     // Add theme-specific effects
     switch (board.theme) {
@@ -1562,6 +4280,14 @@ function createThemedWalls(board) {
         sink: { color: 0xfafafa, roughness: 0.2, metalness: 0.3 },
         curtain: { color: 0x87ceeb, roughness: 0.8, metalness: 0.0 },
         tproll: { color: 0xffffff, roughness: 0.95, metalness: 0.0 },
+        rubberducky: { color: 0xffd700, roughness: 0.4, metalness: 0.1 },
+        shower: { color: 0xadd8e6, roughness: 0.1, metalness: 0.3 },
+        glass: { color: 0xffffff, roughness: 0.0, metalness: 0.1, transparent: true, opacity: 0.3 },
+        stalldivider: { color: 0xa0a0a0, roughness: 0.5, metalness: 0.2 },
+        soap: { color: 0xffc0cb, roughness: 0.3, metalness: 0.0 },
+        towelrack: { color: 0xc0c0c0, roughness: 0.3, metalness: 0.7 },
+        tptower: { color: 0xffffff, roughness: 0.95, metalness: 0.0 },
+        laundrybasket: { color: 0x8b4513, roughness: 0.9, metalness: 0.0 },
         // Kitchen
         fridge: { color: 0xc0c0c0, roughness: 0.3, metalness: 0.8 },
         counter: { color: 0x696969, roughness: 0.4, metalness: 0.2 },
@@ -1590,6 +4316,14 @@ function createThemedWalls(board) {
         else if (wall.type === 'toaster') wallHeight = 3;
         else if (wall.type === 'dumpster') wallHeight = 3;
         else if (wall.type === 'crate') wallHeight = 3;
+        else if (wall.type === 'rubberducky') wallHeight = 10;  // BIG rubber ducky!
+        else if (wall.type === 'shower') wallHeight = 0.5;      // Just floor tile
+        else if (wall.type === 'glass') wallHeight = 6;         // Glass walls
+        else if (wall.type === 'stalldivider') wallHeight = 5;
+        else if (wall.type === 'soap') wallHeight = 1.5;
+        else if (wall.type === 'towelrack') wallHeight = 5;
+        else if (wall.type === 'tptower') wallHeight = 7;
+        else if (wall.type === 'laundrybasket') wallHeight = 3;
 
         const geometry = new THREE.BoxGeometry(wall.w, wallHeight, wall.d);
 
@@ -1611,7 +4345,9 @@ function createThemedWalls(board) {
                 roughness: mat.roughness,
                 metalness: mat.metalness,
                 emissive: mat.emissive || 0x000000,
-                emissiveIntensity: mat.emissiveIntensity || 0
+                emissiveIntensity: mat.emissiveIntensity || 0,
+                transparent: mat.transparent || false,
+                opacity: mat.opacity !== undefined ? mat.opacity : 1
             });
         } else if (wallMaterial) {
             meshMaterial = wallMaterial.clone();
@@ -1703,7 +4439,7 @@ function createThemedWalls(board) {
 // Collectibles System (Coins & Powerups)
 // ==========================================
 
-const POWERUP_TYPES = ['invisibility', 'speed', 'freeze'];
+const POWERUP_TYPES = ['invisibility', 'speed', 'freeze', 'phaseWalk'];
 
 function createCoinMesh() {
     // Create a gold spinning coin
@@ -1738,6 +4474,69 @@ function createCoinMesh() {
     return group;
 }
 
+function createMultiplierMesh() {
+    // Create 3 stacked coins for the multiplier
+    const group = new THREE.Group();
+
+    const coinGeometry = new THREE.CylinderGeometry(CONFIG.COIN_RADIUS, CONFIG.COIN_RADIUS, 0.2, 16);
+    const coinMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffd700,
+        metalness: 0.9,
+        roughness: 0.1,
+        emissive: 0xffa500,
+        emissiveIntensity: 0.5
+    });
+
+    // Create 3 coins stacked with slight offset
+    for (let i = 0; i < 3; i++) {
+        const coin = new THREE.Mesh(coinGeometry, coinMaterial.clone());
+        coin.rotation.x = Math.PI / 2;
+        coin.position.y = i * 0.3;  // Stack them vertically
+        coin.position.x = (i - 1) * 0.15;  // Slight horizontal offset for visual effect
+        group.add(coin);
+    }
+
+    // Add bigger, more intense glow ring
+    const glowGeometry = new THREE.TorusGeometry(CONFIG.COIN_RADIUS + 0.4, 0.15, 8, 16);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffff00,
+        transparent: true,
+        opacity: 0.7
+    });
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    glow.rotation.x = Math.PI / 2;
+    glow.position.y = 0.3;  // Center of the stack
+    group.add(glow);
+
+    // Add "x3" text indicator using a sprite
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 48px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('x3', 32, 32);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMaterial = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false
+    });
+    const sprite = new THREE.Sprite(spriteMaterial);
+    sprite.scale.set(1.5, 1.5, 1);
+    sprite.position.y = 1.8;  // Above the coins
+    group.add(sprite);
+
+    group.userData.type = 'multiplier';
+    group.userData.rotationSpeed = 0.05 + Math.random() * 0.02;
+    group.userData.bobOffset = Math.random() * Math.PI * 2;
+
+    return group;
+}
+
 function createPowerupMesh(type) {
     const group = new THREE.Group();
 
@@ -1754,6 +4553,10 @@ function createPowerupMesh(type) {
         case 'freeze':
             color = 0x88ddff;
             emissiveColor = 0x4488ff;
+            break;
+        case 'phaseWalk':
+            color = 0x66ff99;  // Ghost green color
+            emissiveColor = 0x33cc66;
             break;
     }
 
@@ -1832,6 +4635,7 @@ function spawnCoins() {
     // Clear existing coins
     clearCollectibles();
 
+    // Spawn regular coins
     for (let i = 0; i < CONFIG.COIN_COUNT; i++) {
         const pos = getRandomSpawnPosition();
         const coinMesh = createCoinMesh();
@@ -1844,6 +4648,23 @@ function spawnCoins() {
             x: pos.x,
             z: pos.z,
             mesh: coinMesh,
+            collected: false
+        });
+    }
+
+    // Spawn coin multipliers (3x coins)
+    for (let i = 0; i < CONFIG.MULTIPLIER_COUNT; i++) {
+        const pos = getRandomSpawnPosition();
+        const multiplierMesh = createMultiplierMesh();
+        multiplierMesh.position.set(pos.x, 1.5, pos.z);
+        scene.add(multiplierMesh);
+        collectibleMeshes.push(multiplierMesh);
+
+        state.collectibles.push({
+            type: 'multiplier',
+            x: pos.x,
+            z: pos.z,
+            mesh: multiplierMesh,
             collected: false
         });
     }
@@ -1905,6 +4726,9 @@ function checkCollectibleCollision(playerX, playerZ, isHider) {
             if (collectible.type === 'coin') {
                 // Both players can collect coins
                 collectCoin(collectible, i);
+            } else if (collectible.type === 'multiplier') {
+                // Both players can collect multipliers (gives 3 coins)
+                collectMultiplier(collectible, i);
             } else if (collectible.type === 'powerup' && isHider) {
                 // Only hider can collect powerups
                 collectPowerup(collectible, i);
@@ -1916,6 +4740,9 @@ function checkCollectibleCollision(playerX, playerZ, isHider) {
 function collectCoin(collectible, index) {
     state.coins++;
     collectible.collected = true;
+
+    // Add coins to persistent store (for purchases)
+    StoreManager.addCoins(1);
 
     // Play coin sound
     SoundManager.playCoinCollect();
@@ -1947,6 +4774,70 @@ function collectCoin(collectible, index) {
 
     // Update coin UI
     updateCoinUI();
+}
+
+function collectMultiplier(collectible, index) {
+    state.coins += 3;
+    collectible.collected = true;
+
+    // Add 3 coins to persistent store
+    StoreManager.addCoins(3);
+
+    // Play coin sound multiple times for effect
+    SoundManager.playCoinCollect();
+    setTimeout(() => SoundManager.playCoinCollect(), 100);
+    setTimeout(() => SoundManager.playCoinCollect(), 200);
+
+    // Show multiplier notification
+    showMultiplierNotification();
+
+    // Animate multiplier collection (scale up, spin faster, and fade)
+    const mesh = collectible.mesh;
+    if (mesh) {
+        const startScale = mesh.scale.x;
+        const startY = mesh.position.y;
+        let progress = 0;
+
+        const animateMultiplierCollect = () => {
+            progress += 0.04;
+            if (progress < 1) {
+                mesh.scale.setScalar(startScale * (1 + progress * 1.5));
+                mesh.position.y = startY + progress * 4;
+                mesh.rotation.y += 0.3;  // Spin fast
+                mesh.children.forEach(child => {
+                    if (child.material) {
+                        child.material.opacity = 1 - progress;
+                        child.material.transparent = true;
+                    }
+                });
+                requestAnimationFrame(animateMultiplierCollect);
+            } else {
+                scene.remove(mesh);
+            }
+        };
+        animateMultiplierCollect();
+    }
+
+    // Update coin UI
+    updateCoinUI();
+}
+
+function showMultiplierNotification() {
+    // Remove any existing notification
+    const existing = document.getElementById('multiplier-notification');
+    if (existing) existing.remove();
+
+    const notification = document.createElement('div');
+    notification.id = 'multiplier-notification';
+    notification.innerHTML = `
+        <div class="multiplier-icon">x3</div>
+        <div class="multiplier-text">COIN MULTIPLIER!</div>
+        <div class="multiplier-coins">+3 Coins</div>
+    `;
+    document.body.appendChild(notification);
+
+    // Remove after animation
+    setTimeout(() => notification.remove(), 2000);
 }
 
 function collectPowerup(collectible, index) {
@@ -2002,6 +4893,26 @@ function applyPowerup(type) {
                 });
             }
             break;
+
+        case 'phaseWalk':
+            state.hiderPhaseWalk = true;
+            state.powerupEndTime = now + CONFIG.PHASE_WALK_DURATION;
+            // Play fast phase walk music
+            SoundManager.playPhaseWalkMusic();
+            // Ghost visual effect - make player semi-transparent and green-tinted
+            if (state.role === 'hider' && playerMesh) {
+                playerMesh.traverse(child => {
+                    if (child.material) {
+                        child.material.transparent = true;
+                        child.material.opacity = 0.5;
+                        if (child.material.emissive) {
+                            child.material.emissive.setHex(0x66ff99);
+                            child.material.emissiveIntensity = 0.6;
+                        }
+                    }
+                });
+            }
+            break;
     }
 
     updatePowerupUI();
@@ -2036,6 +4947,24 @@ function updatePowerupEffects() {
                     if (child.material && child.material.emissive) {
                         child.material.emissive.setHex(0x000000);
                         child.material.emissiveIntensity = 0;
+                    }
+                });
+            }
+        }
+
+        if (state.hiderPhaseWalk) {
+            state.hiderPhaseWalk = false;
+            SoundManager.stopPhaseWalkMusic();
+            // Reset player visual
+            if (state.role === 'hider' && playerMesh) {
+                playerMesh.traverse(child => {
+                    if (child.material) {
+                        child.material.transparent = false;
+                        child.material.opacity = 1;
+                        if (child.material.emissive) {
+                            child.material.emissive.setHex(0x000000);
+                            child.material.emissiveIntensity = 0;
+                        }
                     }
                 });
             }
@@ -2097,6 +5026,10 @@ function updatePowerupUI() {
                 icon = '❄️';
                 label = 'FREEZE';
                 break;
+            case 'phaseWalk':
+                icon = '🌀';
+                label = 'PHASE WALK';
+                break;
         }
 
         powerupIndicator.innerHTML = `${icon} ${label} ${remaining}s`;
@@ -2107,62 +5040,261 @@ function updatePowerupUI() {
 
 // Haunted theme - fog/mist particles
 function createHauntedEffects() {
-    // ========== LOAD 3D MODELS ==========
-    const modelBasePath = 'images/maze elements/compressed/';
-
-    // Ghost floating around (small collision - can walk close to them)
-    loadBoardModel(modelBasePath + 'ghost.glb', -25, -25, 15, 0, 2, 5);
-    loadBoardModel(modelBasePath + 'ghost.glb', 25, 25, 12, Math.PI, 2, 5);
-
-    // Headstones scattered (small collision)
-    loadBoardModel(modelBasePath + 'headstone.glb', -32, 0, 10, 0, 1.5, 2);
-    loadBoardModel(modelBasePath + 'headstone.glb', 32, 0, 10, Math.PI, 1.5, 2);
-    loadBoardModel(modelBasePath + 'headstone.glb', 0, -32, 8, Math.PI / 4, 1.5, 2);
-    loadBoardModel(modelBasePath + 'headstone.glb', 0, 32, 9, -Math.PI / 4, 1.5, 2);
-
-    // Add fog/mist particles
-    const fogCount = 50;
-    for (let i = 0; i < fogCount; i++) {
-        const geometry = new THREE.SphereGeometry(1 + Math.random() * 2, 8, 8);
-        const material = new THREE.MeshBasicMaterial({
-            color: 0x4444aa,
-            transparent: true,
-            opacity: 0.15 + Math.random() * 0.1
-        });
-        const fog = new THREE.Mesh(geometry, material);
-
-        // Random position within arena
-        const angle = Math.random() * Math.PI * 2;
-        const radius = Math.random() * CONFIG.ARENA_RADIUS * 0.8;
-        fog.position.set(
-            Math.cos(angle) * radius,
-            0.5 + Math.random() * 2,
-            Math.sin(angle) * radius
-        );
-        fog.userData.driftSpeed = 0.001 + Math.random() * 0.002;
-        fog.userData.driftAngle = Math.random() * Math.PI * 2;
-        fog.userData.bobSpeed = 0.5 + Math.random() * 0.5;
-        fog.userData.bobOffset = Math.random() * Math.PI * 2;
-
-        scene.add(fog);
-        themeParticles.push(fog);
-    }
-
-    // Slightly dim lighting for haunted effect but still visible
+    // Dim the main lighting for spooky atmosphere
     scene.children.forEach(child => {
         if (child.isAmbientLight) {
-            child.intensity = 0.6; // Brighter so seeker can see
+            child.intensity = 0.4;
         }
         if (child.isDirectionalLight && !child.shadow) {
-            child.intensity = 0.5;
+            child.intensity = 0.3;
         }
     });
 
-    // Add some moonlight for visibility
-    const moonLight = new THREE.DirectionalLight(0x8888ff, 0.4);
+    // Add eerie moonlight
+    const moonLight = new THREE.DirectionalLight(0x6666aa, 0.5);
     moonLight.position.set(-10, 20, 10);
     scene.add(moonLight);
     themeLights.push(moonLight);
+
+    // ========== FLICKERING LIGHT BULB ==========
+    const bulbLight = new THREE.PointLight(0xffaa44, 1.5, 25);
+    bulbLight.position.set(0, 6, 0);
+    bulbLight.userData.isFlickering = true;
+    bulbLight.userData.flickerTimer = 0;
+    bulbLight.userData.baseIntensity = 1.5;
+    scene.add(bulbLight);
+    themeLights.push(bulbLight);
+
+    // Light bulb mesh
+    const bulbGeometry = new THREE.SphereGeometry(0.4, 8, 8);
+    const bulbMaterial = new THREE.MeshBasicMaterial({ color: 0xffdd88 });
+    const bulbMesh = new THREE.Mesh(bulbGeometry, bulbMaterial);
+    bulbMesh.position.set(0, 6, 0);
+    scene.add(bulbMesh);
+    themeParticles.push(bulbMesh);
+
+    // Wire/cord hanging down
+    const wireGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2, 8);
+    const wireMaterial = new THREE.MeshBasicMaterial({ color: 0x222222 });
+    const wire = new THREE.Mesh(wireGeometry, wireMaterial);
+    wire.position.set(0, 7.5, 0);
+    scene.add(wire);
+    themeParticles.push(wire);
+
+    // ========== FLOATING GHOSTS ==========
+    const ghostPositions = [
+        { x: -20, z: 20 }, { x: 22, z: -18 }, { x: -15, z: -22 }, { x: 18, z: 15 }
+    ];
+    ghostPositions.forEach((pos, i) => {
+        // Ghost body (sheet-like shape)
+        const ghostGroup = new THREE.Group();
+
+        // Main body - elongated sphere
+        const bodyGeom = new THREE.SphereGeometry(1.2, 8, 8);
+        bodyGeom.scale(1, 1.5, 0.8);
+        const ghostMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.4
+        });
+        const body = new THREE.Mesh(bodyGeom, ghostMat);
+        ghostGroup.add(body);
+
+        // Eyes - black hollow circles
+        const eyeGeom = new THREE.CircleGeometry(0.2, 8);
+        const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
+        const leftEye = new THREE.Mesh(eyeGeom, eyeMat);
+        leftEye.position.set(-0.35, 0.4, 0.9);
+        ghostGroup.add(leftEye);
+        const rightEye = new THREE.Mesh(eyeGeom, eyeMat);
+        rightEye.position.set(0.35, 0.4, 0.9);
+        ghostGroup.add(rightEye);
+
+        // Mouth - oval
+        const mouthGeom = new THREE.CircleGeometry(0.3, 8);
+        mouthGeom.scale(1, 1.5, 1);
+        const mouth = new THREE.Mesh(mouthGeom, eyeMat);
+        mouth.position.set(0, -0.3, 0.9);
+        ghostGroup.add(mouth);
+
+        // Wavy bottom tail
+        const tailGeom = new THREE.ConeGeometry(1.2, 1.5, 8);
+        const tail = new THREE.Mesh(tailGeom, ghostMat);
+        tail.position.y = -1.8;
+        tail.rotation.x = Math.PI;
+        ghostGroup.add(tail);
+
+        ghostGroup.position.set(pos.x, 4 + Math.random() * 2, pos.z);
+        ghostGroup.userData.floatSpeed = 0.8 + Math.random() * 0.4;
+        ghostGroup.userData.floatOffset = Math.random() * Math.PI * 2;
+        ghostGroup.userData.driftAngle = Math.random() * Math.PI * 2;
+        ghostGroup.userData.isGhost = true;
+
+        scene.add(ghostGroup);
+        themeParticles.push(ghostGroup);
+    });
+
+    // ========== COBWEBS ==========
+    const cobwebPositions = [
+        { x: -28, z: -28, rot: 0 }, { x: 28, z: -28, rot: Math.PI / 2 },
+        { x: -28, z: 28, rot: -Math.PI / 2 }, { x: 28, z: 28, rot: Math.PI },
+        { x: -10, z: -15, rot: 0.3 }, { x: 15, z: 10, rot: -0.5 }
+    ];
+    cobwebPositions.forEach(pos => {
+        const webGroup = new THREE.Group();
+        const webMat = new THREE.LineBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.5 });
+
+        // Radial threads
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI / 2;
+            const points = [
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(Math.cos(angle) * 3, Math.sin(angle) * 3, 0)
+            ];
+            const lineGeom = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(lineGeom, webMat);
+            webGroup.add(line);
+        }
+
+        // Spiral threads
+        for (let ring = 1; ring <= 4; ring++) {
+            const ringPoints = [];
+            for (let i = 0; i <= 8; i++) {
+                const angle = (i / 8) * Math.PI / 2;
+                const r = ring * 0.7;
+                ringPoints.push(new THREE.Vector3(Math.cos(angle) * r, Math.sin(angle) * r, 0));
+            }
+            const ringGeom = new THREE.BufferGeometry().setFromPoints(ringPoints);
+            const ringLine = new THREE.Line(ringGeom, webMat);
+            webGroup.add(ringLine);
+        }
+
+        webGroup.position.set(pos.x, 5, pos.z);
+        webGroup.rotation.x = -Math.PI / 2;
+        webGroup.rotation.z = pos.rot;
+        scene.add(webGroup);
+        themeParticles.push(webGroup);
+    });
+
+    // ========== BLOOD SPLATTERS ON WALLS ==========
+    const bloodPositions = [
+        { x: -30, z: 0, rotY: Math.PI / 2 },
+        { x: 30, z: -10, rotY: -Math.PI / 2 },
+        { x: 5, z: -28, rotY: 0 },
+        { x: -10, z: 28, rotY: Math.PI }
+    ];
+    bloodPositions.forEach(pos => {
+        // Main splatter
+        const splatGeom = new THREE.CircleGeometry(1.5, 12);
+        splatGeom.scale(1, 1.3, 1);
+        const bloodMat = new THREE.MeshBasicMaterial({
+            color: 0x8b0000,
+            transparent: true,
+            opacity: 0.8,
+            side: THREE.DoubleSide
+        });
+        const splat = new THREE.Mesh(splatGeom, bloodMat);
+        splat.position.set(pos.x, 2.5, pos.z);
+        splat.rotation.y = pos.rotY;
+        scene.add(splat);
+        themeParticles.push(splat);
+
+        // Drips running down
+        for (let d = 0; d < 3; d++) {
+            const dripGeom = new THREE.CylinderGeometry(0.15, 0.08, 1.5 + Math.random(), 8);
+            const drip = new THREE.Mesh(dripGeom, bloodMat);
+            drip.position.set(
+                pos.x + (pos.rotY === 0 || pos.rotY === Math.PI ? (Math.random() - 0.5) * 2 : 0),
+                1.2 - Math.random() * 0.5,
+                pos.z + (Math.abs(pos.rotY) === Math.PI / 2 ? (Math.random() - 0.5) * 2 : 0)
+            );
+            scene.add(drip);
+            themeParticles.push(drip);
+        }
+
+        // Bloody handprint
+        if (Math.random() > 0.5) {
+            const handGroup = new THREE.Group();
+            // Palm
+            const palmGeom = new THREE.CircleGeometry(0.6, 8);
+            palmGeom.scale(0.8, 1, 1);
+            const palm = new THREE.Mesh(palmGeom, bloodMat);
+            handGroup.add(palm);
+            // Fingers
+            for (let f = 0; f < 4; f++) {
+                const fingerGeom = new THREE.CylinderGeometry(0.12, 0.1, 0.7, 6);
+                const finger = new THREE.Mesh(fingerGeom, bloodMat);
+                finger.position.set(-0.35 + f * 0.23, 0.8, 0);
+                finger.rotation.z = (f - 1.5) * 0.1;
+                handGroup.add(finger);
+            }
+            // Thumb
+            const thumbGeom = new THREE.CylinderGeometry(0.12, 0.1, 0.5, 6);
+            const thumb = new THREE.Mesh(thumbGeom, bloodMat);
+            thumb.position.set(-0.7, 0.2, 0);
+            thumb.rotation.z = Math.PI / 3;
+            handGroup.add(thumb);
+
+            handGroup.position.set(
+                pos.x + (pos.rotY === Math.PI / 2 ? 0.1 : pos.rotY === -Math.PI / 2 ? -0.1 : 0),
+                3.5,
+                pos.z + (pos.rotY === 0 ? 0.1 : pos.rotY === Math.PI ? -0.1 : 0)
+            );
+            handGroup.rotation.y = pos.rotY;
+            handGroup.rotation.z = Math.random() * 0.5 - 0.25;
+            scene.add(handGroup);
+            themeParticles.push(handGroup);
+        }
+    });
+
+    // ========== CRACKS ON WALLS ==========
+    const crackPositions = [
+        { x: -29, z: 15, rotY: Math.PI / 2 },
+        { x: 29, z: 5, rotY: -Math.PI / 2 },
+        { x: -5, z: -29, rotY: 0 },
+        { x: 10, z: 29, rotY: Math.PI }
+    ];
+    crackPositions.forEach(pos => {
+        const crackMat = new THREE.LineBasicMaterial({ color: 0x1a1a1a, linewidth: 2 });
+
+        // Main crack
+        const mainCrackPoints = [
+            new THREE.Vector3(0, 2, 0),
+            new THREE.Vector3(0.3, 1.2, 0),
+            new THREE.Vector3(-0.2, 0.5, 0),
+            new THREE.Vector3(0.1, -0.5, 0),
+            new THREE.Vector3(-0.3, -1.5, 0)
+        ];
+        const mainCrackGeom = new THREE.BufferGeometry().setFromPoints(mainCrackPoints);
+        const mainCrack = new THREE.Line(mainCrackGeom, crackMat);
+        mainCrack.position.set(pos.x, 2, pos.z);
+        mainCrack.rotation.y = pos.rotY;
+        scene.add(mainCrack);
+        themeParticles.push(mainCrack);
+
+        // Branch cracks
+        const branchPoints = [
+            [new THREE.Vector3(0.3, 1.2, 0), new THREE.Vector3(0.8, 1.5, 0)],
+            [new THREE.Vector3(-0.2, 0.5, 0), new THREE.Vector3(-0.7, 0.3, 0)],
+            [new THREE.Vector3(0.1, -0.5, 0), new THREE.Vector3(0.5, -0.8, 0)]
+        ];
+        branchPoints.forEach(points => {
+            const branchGeom = new THREE.BufferGeometry().setFromPoints(points);
+            const branch = new THREE.Line(branchGeom, crackMat);
+            branch.position.set(pos.x, 2, pos.z);
+            branch.rotation.y = pos.rotY;
+            scene.add(branch);
+            themeParticles.push(branch);
+        });
+    });
+
+    // ========== HIDING PROPS ==========
+    createCrate(-25, 10, 2.5, 0x3d2817);
+    createCrate(-22, 12, 1.8, 0x4a3728);
+    createCrate(25, -15, 2, 0x3d2817);
+    createBarrel(-10, 25, 1.2, 2.5, 0x2d1f1a);
+    createBarrel(15, 20, 1, 2, 0x1a1a1a);
+    createBarrel(-18, -20, 1.1, 2.3, 0x2d1f1a);
 }
 
 // Neon theme - grid lines and electric particles
@@ -2209,16 +5341,22 @@ function createNeonEffects(board) {
     neonLight.position.set(0, 10, 0);
     scene.add(neonLight);
     themeLights.push(neonLight);
+
+    // ========== HIDING PROPS ==========
+    // High-tech crates (dark with cyan tint)
+    createCrate(-20, 5, 2.5, 0x1a3a3a);
+    createCrate(22, -8, 2, 0x1a3a3a);
+    createCrate(-15, -25, 2.2, 0x203535);
+
+    // Glowing barrels
+    createBarrel(10, 15, 1, 2.5, 0x004444);
+    createBarrel(-25, -10, 1.2, 2.8, 0x003333);
 }
 
 // Medieval theme - torches with flickering light
 function createMedievalEffects(board) {
     // ========== LOAD 3D MODELS ==========
     const modelBasePath = 'images/maze elements/compressed/';
-
-    // Knight guards at entrance areas (small collision)
-    loadBoardModel(modelBasePath + 'knight.glb', -30, 0, 15, Math.PI / 2, 2);
-    loadBoardModel(modelBasePath + 'knight.glb', 30, 0, 15, -Math.PI / 2, 2);
 
     // Fortress structure in back (medium collision)
     loadBoardModel(modelBasePath + 'fortress.glb', 0, -32, 12, 0, 4);
@@ -2267,6 +5405,14 @@ function createMedievalEffects(board) {
             child.intensity = 0.4;
         }
     });
+
+    // ========== HIDING PROPS ==========
+    // Medieval barrels and crates
+    createBarrel(-15, 10, 1.3, 2.8, 0x654321);
+    createBarrel(-12, 12, 1.1, 2.5, 0x5c4033);
+    createBarrel(20, -5, 1.2, 2.6, 0x654321);
+    createCrate(15, 15, 2.5, 0x7a5c3d);
+    createCrate(-20, -15, 2, 0x6d4c2d);
 }
 
 // Garden theme - 3D props + floating leaves and butterflies
@@ -2384,6 +5530,19 @@ function createGardenEffects() {
     fillLight.position.set(-15, 20, -10);
     scene.add(fillLight);
     themeLights.push(fillLight);
+
+    // ========== HIDING PROPS ==========
+    // Garden bushes for hiding
+    createBush(-20, 8, 2, 0x228B22);
+    createBush(22, 5, 1.8, 0x2e8b57);
+    createBush(-15, -18, 2.2, 0x32cd32);
+    createBush(18, -20, 1.6, 0x228B22);
+    createBush(-8, 25, 2, 0x3cb371);
+    createBush(12, 22, 1.9, 0x2e8b57);
+
+    // Garden crates/planters
+    createCrate(25, 0, 2, 0x8B4513);
+    createCrate(-25, -5, 1.8, 0x6d4c2d);
 }
 
 // Helper function: Create a 3D tree
@@ -2767,6 +5926,21 @@ function createBunkerEffects() {
             child.intensity = 0.25;
         }
     });
+
+    // ========== HIDING PROPS ==========
+    // Military crates
+    createCrate(-18, 15, 2.5, 0x3d4f3d);    // Military green
+    createCrate(-15, 18, 2, 0x4a5a4a);
+    createCrate(20, -8, 2.3, 0x3d4f3d);
+
+    // Barrels (hazardous materials look)
+    createBarrel(-10, -20, 1.2, 2.8, 0x505050);
+    createBarrel(15, 25, 1, 2.5, 0x444444);
+    createBarrel(-30, 0, 1.3, 2.6, 0x505050);
+
+    // Lockers against walls
+    createLockers(-35, -15, 5, 0x555555);
+    createLockers(35, 20, 4, 0x606060);
 }
 
 // Ruins theme - floating vine particles and nature
@@ -2805,6 +5979,18 @@ function createRuinsEffects() {
             child.intensity = 0.5;
         }
     });
+
+    // ========== HIDING PROPS ==========
+    // Rubble piles for hiding
+    createRubble(-25, 15, 3);
+    createRubble(22, -18, 2.5);
+    createRubble(-10, 28, 3.5);
+    createRubble(30, 10, 2.8);
+
+    // Overgrown bushes
+    createBush(-18, -10, 2.5, 0x4a7c3d);    // Dark moss green
+    createBush(15, 20, 2, 0x3d6633);
+    createBush(-30, -25, 1.8, 0x4a7c3d);
 }
 
 // Arena theme - spotlights and dramatic lighting
@@ -2849,6 +6035,17 @@ function createArenaEffects() {
     scene.add(centerSpot);
     scene.add(centerSpot.target);
     themeLights.push(centerSpot);
+
+    // ========== HIDING PROPS ==========
+    // Equipment crates around edges
+    createCrate(-28, -20, 2.5, 0x333333);
+    createCrate(28, -20, 2.5, 0x333333);
+    createCrate(-28, 20, 2, 0x444444);
+    createCrate(28, 20, 2, 0x444444);
+
+    // Barrels near entrances
+    createBarrel(-20, -28, 1.2, 2.5, 0x222222);
+    createBarrel(20, 28, 1.2, 2.5, 0x222222);
 }
 
 // Streets theme - neon signs, flickering lights, trash floating
@@ -2904,17 +6101,25 @@ function createStreetsEffects() {
             child.intensity = 0.3;
         }
     });
+
+    // ========== HIDING PROPS ==========
+    // Dumpsters in alleys
+    createDumpster(-25, 5, Math.PI / 4);
+    createDumpster(25, -10, -Math.PI / 4);
+
+    // Urban crates/boxes
+    createCrate(-18, -28, 2, 0x4a4a4a);
+    createCrate(-15, -25, 1.5, 0x3d3d3d);
+    createCrate(20, 25, 2.2, 0x4a4a4a);
+
+    // Trash barrels
+    createBarrel(-8, 18, 1, 2, 0x333333);
+    createBarrel(12, -15, 0.9, 1.8, 0x2d2d2d);
+    createBarrel(-22, -15, 1.1, 2.2, 0x333333);
 }
 
 // Park theme - pond with ducks, butterflies, birds
 function createParkEffects() {
-    // ========== LOAD 3D MODELS ==========
-    const modelBasePath = 'images/maze elements/compressed/';
-
-    // Park bench (small collision)
-    loadBoardModel(modelBasePath + 'park_bench.glb', -32, -20, 15, Math.PI / 4, 2);
-    loadBoardModel(modelBasePath + 'park_bench.glb', 32, 20, 15, -Math.PI * 3/4, 2);
-
     // Create the pond in the center
     const pondGeometry = new THREE.CircleGeometry(10, 32);
     const pondMaterial = new THREE.MeshStandardMaterial({
@@ -2998,83 +6203,331 @@ function createParkEffects() {
     sunLight.position.set(30, 40, 20);
     scene.add(sunLight);
     themeLights.push(sunLight);
+
+    // ========== HIDING PROPS ==========
+    // Park bushes
+    createBush(-25, -28, 2.5, 0x228B22);
+    createBush(25, -28, 2, 0x2e8b57);
+    createBush(-28, 25, 2.2, 0x32cd32);
+    createBush(28, 25, 1.8, 0x3cb371);
+    createBush(-10, -30, 1.5, 0x228B22);
+    createBush(10, 30, 1.5, 0x2e8b57);
+
+    // Wooden crates (park storage)
+    createCrate(-32, 0, 2, 0x8B4513);
+    createCrate(32, 5, 1.8, 0x6d4c2d);
 }
 
-// Bathroom theme - steam, dripping water, rubber ducks
+// Bathroom theme - steam, dripping water, rubber ducks, FUN!
 function createBathroomEffects() {
-    // ========== LOAD 3D MODELS ==========
     const modelBasePath = 'images/maze elements/compressed/';
 
-    // Toilet (adds to the stalls) - small collision
-    loadBoardModel(modelBasePath + 'toilet.glb', -32, -25, 10, Math.PI / 2, 1.5);
-    loadBoardModel(modelBasePath + 'toilet.glb', -32, -5, 10, Math.PI / 2, 1.5);
+    // ========== GIANT RUBBER DUCKY (Center - Main Feature!) ==========
+    createGiantRubberDucky(0, 0);
 
-    // Sink along the wall - small collision
-    loadBoardModel(modelBasePath + 'sink.glb', 30, -25, 8, -Math.PI / 2, 1.5);
-    loadBoardModel(modelBasePath + 'sink.glb', 30, 5, 8, -Math.PI / 2, 1.5);
+    // ========== BATHTUB WITH BUBBLES (Bottom right) ==========
+    createBathtubWithBubbles(22, 22);
 
-    // Steam particles rising
-    for (let i = 0; i < 30; i++) {
-        const geometry = new THREE.SphereGeometry(0.3 + Math.random() * 0.5, 8, 8);
+    // ========== SHOWER AREA (Top right) ==========
+    createShowerArea(28, -22);
+
+    // ========== TOILET MODELS ==========
+    loadBoardModel(modelBasePath + 'toilet.glb', -30, -25, 8, Math.PI / 2, 2);
+    loadBoardModel(modelBasePath + 'toilet.glb', -30, -10, 8, Math.PI / 2, 2);
+    loadBoardModel(modelBasePath + 'toilet.glb', -30, 5, 8, Math.PI / 2, 2);
+
+    // ========== SINK MODELS ==========
+    loadBoardModel(modelBasePath + 'sink.glb', -22, -35, 6, 0, 1.8);
+    loadBoardModel(modelBasePath + 'sink.glb', -10, -35, 6, 0, 1.8);
+    loadBoardModel(modelBasePath + 'sink.glb', 2, -35, 6, 0, 1.8);
+
+    // ========== FLOATING BUBBLES (everywhere!) ==========
+    for (let i = 0; i < 50; i++) {
+        const size = 0.2 + Math.random() * 0.6;
+        const geometry = new THREE.SphereGeometry(size, 12, 12);
+        const material = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.4 + Math.random() * 0.3,
+            roughness: 0.0,
+            metalness: 0.1
+        });
+        const bubble = new THREE.Mesh(geometry, material);
+
+        bubble.position.set(
+            -30 + Math.random() * 60,
+            1 + Math.random() * 8,
+            -30 + Math.random() * 60
+        );
+        bubble.userData.floatSpeed = 0.01 + Math.random() * 0.02;
+        bubble.userData.wobbleSpeed = 2 + Math.random() * 3;
+        bubble.userData.wobbleAmount = 0.5 + Math.random();
+        bubble.userData.startX = bubble.position.x;
+        bubble.userData.startZ = bubble.position.z;
+        bubble.userData.isBubble = true;
+
+        scene.add(bubble);
+        themeParticles.push(bubble);
+    }
+
+    // ========== STEAM from shower ==========
+    for (let i = 0; i < 25; i++) {
+        const geometry = new THREE.SphereGeometry(0.4 + Math.random() * 0.6, 8, 8);
         const material = new THREE.MeshBasicMaterial({
             color: 0xffffff,
             transparent: true,
-            opacity: 0.2 + Math.random() * 0.2
+            opacity: 0.15 + Math.random() * 0.15
         });
         const steam = new THREE.Mesh(geometry, material);
 
-        // Steam near bathtub area
         steam.position.set(
-            -19 + Math.random() * 12,
-            1 + Math.random() * 3,
-            -20 + Math.random() * 6
+            25 + Math.random() * 8,
+            1 + Math.random() * 4,
+            -25 + Math.random() * 8
         );
-        steam.userData.riseSpeed = 0.02 + Math.random() * 0.02;
+        steam.userData.riseSpeed = 0.015 + Math.random() * 0.02;
         steam.userData.driftSpeed = 0.01;
-        steam.userData.maxY = 8;
+        steam.userData.maxY = 10;
+        steam.userData.isSteam = true;
 
         scene.add(steam);
         themeParticles.push(steam);
     }
 
-    // Water drips
-    for (let i = 0; i < 10; i++) {
-        const geometry = new THREE.SphereGeometry(0.1, 8, 8);
+    // ========== WATER DRIPS from sinks ==========
+    for (let i = 0; i < 8; i++) {
+        const geometry = new THREE.SphereGeometry(0.12, 8, 8);
         const material = new THREE.MeshBasicMaterial({
             color: 0x87ceeb,
             transparent: true,
-            opacity: 0.8
+            opacity: 0.85
         });
         const drip = new THREE.Mesh(geometry, material);
         drip.position.set(
-            20 + Math.random() * 4,
-            3,
-            -22 + Math.random() * 2
+            -22 + (i % 3) * 12,
+            4,
+            -32
         );
         drip.userData.fallSpeed = 0;
-        drip.userData.maxFallSpeed = 0.3;
-        drip.userData.startY = 3;
-        drip.userData.dripTimer = Math.random() * 100;
+        drip.userData.maxFallSpeed = 0.35;
+        drip.userData.startY = 4;
+        drip.userData.dripTimer = Math.random() * 120;
 
         scene.add(drip);
         themeParticles.push(drip);
     }
 
-    // Rubber duck in bathtub!
-    const duckBody = new THREE.SphereGeometry(0.8, 12, 12);
-    const duckMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
-    const bathDuck = new THREE.Mesh(duckBody, duckMaterial);
-    bathDuck.position.set(-19, 1.5, -17);
-    bathDuck.userData.bobSpeed = 2;
-    bathDuck.userData.bobOffset = 0;
-    scene.add(bathDuck);
-    themeParticles.push(bathDuck);
+    // ========== BRIGHT BATHROOM LIGHTING ==========
+    const mainLight = new THREE.PointLight(0xffffff, 1.0, 80);
+    mainLight.position.set(0, 15, 0);
+    mainLight.castShadow = true;
+    scene.add(mainLight);
+    themeLights.push(mainLight);
 
-    // Bright bathroom lighting
-    const bathLight = new THREE.PointLight(0xffffff, 0.8, 50);
-    bathLight.position.set(0, 10, 0);
-    scene.add(bathLight);
-    themeLights.push(bathLight);
+    const showerLight = new THREE.PointLight(0xadd8e6, 0.6, 30);
+    showerLight.position.set(28, 10, -22);
+    scene.add(showerLight);
+    themeLights.push(showerLight);
+
+    const tubLight = new THREE.PointLight(0xffe4b5, 0.5, 25);
+    tubLight.position.set(22, 8, 22);
+    scene.add(tubLight);
+    themeLights.push(tubLight);
+
+    // ========== STALL DOORS ==========
+    createDoor(-26, -25, 2.5, 5, 0x808080);
+    createDoor(-26, -10, 2.5, 5, 0x808080);
+    createDoor(-26, 5, 2.5, 5, 0x808080);
+
+    // ========== MIRRORS above sinks ==========
+    createMirror(-22, -30, 4, 3);
+    createMirror(-10, -30, 4, 3);
+    createMirror(2, -30, 4, 3);
+
+    // ========== SMALL RUBBER DUCKS in bathtub ==========
+    createSmallDuck(25, 20);
+    createSmallDuck(19, 24);
+    createSmallDuck(24, 26);
+}
+
+
+// Create GIANT rubber ducky - the star of the bathroom!
+function createGiantRubberDucky(x, z) {
+    const duckGroup = new THREE.Group();
+    const duckMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffd700,
+        roughness: 0.3,
+        metalness: 0.1
+    });
+
+    // Body (large sphere)
+    const bodyGeom = new THREE.SphereGeometry(5, 24, 24);
+    bodyGeom.scale(1, 0.85, 1.1);
+    const body = new THREE.Mesh(bodyGeom, duckMaterial);
+    body.position.y = 4;
+    body.castShadow = true;
+    duckGroup.add(body);
+
+    // Head
+    const head = new THREE.Mesh(new THREE.SphereGeometry(2.5, 20, 20), duckMaterial);
+    head.position.set(0, 8, 3.5);
+    head.castShadow = true;
+    duckGroup.add(head);
+
+    // Beak (orange)
+    const beakGeom = new THREE.ConeGeometry(1, 2.5, 8);
+    beakGeom.rotateX(Math.PI / 2);
+    const beak = new THREE.Mesh(beakGeom, new THREE.MeshStandardMaterial({ color: 0xff8c00 }));
+    beak.position.set(0, 7.5, 6);
+    duckGroup.add(beak);
+
+    // Eyes
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 12), eyeMat);
+    leftEye.position.set(-1.2, 9, 5);
+    duckGroup.add(leftEye);
+    const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 12), eyeMat);
+    rightEye.position.set(1.2, 9, 5);
+    duckGroup.add(rightEye);
+
+    // Wings
+    const wingGeom = new THREE.SphereGeometry(2, 12, 12);
+    wingGeom.scale(0.3, 0.8, 1);
+    const leftWing = new THREE.Mesh(wingGeom, duckMaterial);
+    leftWing.position.set(-4.5, 4, 0);
+    leftWing.rotation.z = 0.3;
+    duckGroup.add(leftWing);
+    const rightWing = new THREE.Mesh(wingGeom.clone(), duckMaterial);
+    rightWing.position.set(4.5, 4, 0);
+    rightWing.rotation.z = -0.3;
+    duckGroup.add(rightWing);
+
+    duckGroup.position.set(x, 0, z);
+    duckGroup.userData.isGiantDuck = true;
+    scene.add(duckGroup);
+    themeParticles.push(duckGroup);
+}
+
+// Create bathtub with bubbles
+function createBathtubWithBubbles(x, z) {
+    const tubGroup = new THREE.Group();
+    const tubMat = new THREE.MeshStandardMaterial({ color: 0xfafafa, roughness: 0.15, metalness: 0.3 });
+
+    // Tub shell
+    const outer = new THREE.Mesh(new THREE.BoxGeometry(12, 3, 8), tubMat);
+    outer.position.y = 1.5;
+    outer.castShadow = true;
+    tubGroup.add(outer);
+
+    // Water
+    const water = new THREE.Mesh(
+        new THREE.BoxGeometry(10, 0.5, 6),
+        new THREE.MeshStandardMaterial({ color: 0x87ceeb, transparent: true, opacity: 0.7 })
+    );
+    water.position.y = 2.5;
+    tubGroup.add(water);
+
+    // Bubble foam
+    const foamMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+    for (let i = 0; i < 20; i++) {
+        const foam = new THREE.Mesh(new THREE.SphereGeometry(0.4 + Math.random() * 0.8, 8, 8), foamMat);
+        foam.position.set(-4 + Math.random() * 8, 2.8 + Math.random() * 0.5, -2 + Math.random() * 4);
+        tubGroup.add(foam);
+    }
+
+    // Faucet
+    const faucetMat = new THREE.MeshStandardMaterial({ color: 0xc0c0c0, metalness: 0.9 });
+    const faucetBase = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 1.5, 12), faucetMat);
+    faucetBase.position.set(5, 3.5, 0);
+    tubGroup.add(faucetBase);
+
+    tubGroup.position.set(x, 0, z);
+    scene.add(tubGroup);
+    themeParticles.push(tubGroup);  // Use themeParticles for cleanup (not themeLights)
+}
+
+// Create shower area
+function createShowerArea(x, z) {
+    const showerGroup = new THREE.Group();
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0xc0c0c0, metalness: 0.9 });
+
+    // Shower head
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1, 0.5, 16), metalMat);
+    head.position.set(0, 8, 0);
+    showerGroup.add(head);
+
+    // Pipe
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 3, 8), metalMat);
+    pipe.position.set(0, 9.5, 2);
+    showerGroup.add(pipe);
+
+    // Water streams
+    const waterMat = new THREE.MeshBasicMaterial({ color: 0x87ceeb, transparent: true, opacity: 0.4 });
+    for (let i = 0; i < 8; i++) {
+        const stream = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 7, 6), waterMat);
+        const angle = (i / 8) * Math.PI * 2;
+        stream.position.set(Math.cos(angle) * 0.8, 4, Math.sin(angle) * 0.8);
+        showerGroup.add(stream);
+    }
+
+    // Floor tile
+    const floor = new THREE.Mesh(
+        new THREE.BoxGeometry(8, 0.3, 10),
+        new THREE.MeshStandardMaterial({ color: 0xe0e0e0 })
+    );
+    floor.position.y = 0.15;
+    showerGroup.add(floor);
+
+    showerGroup.position.set(x, 0, z);
+    scene.add(showerGroup);
+    themeParticles.push(showerGroup);  // Use themeParticles for cleanup
+}
+
+// Create mirror
+function createMirror(x, z, width, height) {
+    const mirror = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, 0.1),
+        new THREE.MeshStandardMaterial({ color: 0xaaccff, metalness: 0.9 })
+    );
+    mirror.position.set(x, 5, z);
+    scene.add(mirror);
+    themeParticles.push(mirror);  // Use themeParticles for cleanup
+
+    const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(width + 0.4, height + 0.4, 0.05),
+        new THREE.MeshStandardMaterial({ color: 0x808080 })
+    );
+    frame.position.set(x, 5, z - 0.1);
+    scene.add(frame);
+    themeParticles.push(frame);  // Use themeParticles for cleanup
+}
+
+// Create small decorative rubber duck
+function createSmallDuck(x, z) {
+    const duckGroup = new THREE.Group();
+    const duckMat = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3 });
+
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 12), duckMat);
+    body.scale.set(1, 0.8, 1);
+    body.position.y = 3.2;
+    duckGroup.add(body);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 10), duckMat);
+    head.position.set(0, 3.7, 0.4);
+    duckGroup.add(head);
+
+    const beak = new THREE.Mesh(
+        new THREE.ConeGeometry(0.15, 0.4, 6),
+        new THREE.MeshStandardMaterial({ color: 0xff8c00 })
+    );
+    beak.rotation.x = Math.PI / 2;
+    beak.position.set(0, 3.6, 0.75);
+    duckGroup.add(beak);
+
+    duckGroup.position.set(x, 0, z);
+    duckGroup.userData.isSmallDuck = true;
+    scene.add(duckGroup);
+    themeParticles.push(duckGroup);
 }
 
 // Kitchen theme - steam from toaster, flies around fruit
@@ -3268,16 +6721,52 @@ function updateThemeEffects() {
 
     switch (board.theme) {
         case 'haunted':
-            // Drift fog particles
-            themeParticles.forEach(fog => {
-                if (fog.userData.driftSpeed) {
-                    fog.position.x += Math.cos(fog.userData.driftAngle) * fog.userData.driftSpeed;
-                    fog.position.z += Math.sin(fog.userData.driftAngle) * fog.userData.driftSpeed;
-                    fog.position.y = fog.position.y + Math.sin(time * fog.userData.bobSpeed + fog.userData.bobOffset) * 0.01;
-
-                    const dist = Math.sqrt(fog.position.x ** 2 + fog.position.z ** 2);
+            // Animate ghosts and fog
+            themeParticles.forEach(particle => {
+                // Floating ghosts
+                if (particle.userData.isGhost) {
+                    // Bobbing up and down
+                    particle.position.y = 4 + Math.sin(time * particle.userData.floatSpeed + particle.userData.floatOffset) * 1.5;
+                    // Slow drift movement
+                    particle.position.x += Math.cos(particle.userData.driftAngle) * 0.01;
+                    particle.position.z += Math.sin(particle.userData.driftAngle) * 0.01;
+                    // Slowly rotate to face different directions
+                    particle.rotation.y = Math.sin(time * 0.3 + particle.userData.floatOffset) * Math.PI * 0.5;
+                    // Pulsing opacity for eerie effect
+                    particle.children.forEach(child => {
+                        if (child.material && child.material.opacity !== undefined) {
+                            const baseOpacity = child.material.color.getHex() === 0x000000 ? 1 : 0.4;
+                            child.material.opacity = baseOpacity + Math.sin(time * 2) * 0.15;
+                        }
+                    });
+                    // Keep within bounds
+                    const dist = Math.sqrt(particle.position.x ** 2 + particle.position.z ** 2);
+                    if (dist > CONFIG.ARENA_RADIUS * 0.8) {
+                        particle.userData.driftAngle += Math.PI;
+                    }
+                }
+                // Drift fog particles
+                else if (particle.userData.driftSpeed) {
+                    particle.position.x += Math.cos(particle.userData.driftAngle) * particle.userData.driftSpeed;
+                    particle.position.z += Math.sin(particle.userData.driftAngle) * particle.userData.driftSpeed;
+                    const dist = Math.sqrt(particle.position.x ** 2 + particle.position.z ** 2);
                     if (dist > CONFIG.ARENA_RADIUS) {
-                        fog.userData.driftAngle += Math.PI;
+                        particle.userData.driftAngle += Math.PI;
+                    }
+                }
+            });
+            // Flickering light bulb
+            themeLights.forEach(light => {
+                if (light.userData.isFlickering) {
+                    light.userData.flickerTimer += 1;
+                    // Random flicker pattern
+                    const flicker = Math.sin(time * 15) * Math.sin(time * 23) * Math.sin(time * 31);
+                    if (flicker > 0.7 || (light.userData.flickerTimer % 120 < 5)) {
+                        light.intensity = light.userData.baseIntensity * 0.2; // Dim flicker
+                    } else if (flicker > 0.3) {
+                        light.intensity = light.userData.baseIntensity * 0.7;
+                    } else {
+                        light.intensity = light.userData.baseIntensity;
                     }
                 }
             });
@@ -3494,40 +6983,58 @@ function updateThemeEffects() {
 
         case 'bathroom':
             themeParticles.forEach(particle => {
+                // Floating bubbles
+                if (particle.userData.isBubble) {
+                    particle.position.y += particle.userData.floatSpeed;
+                    particle.position.x = particle.userData.startX + Math.sin(time * particle.userData.wobbleSpeed) * particle.userData.wobbleAmount;
+                    particle.position.z = particle.userData.startZ + Math.cos(time * particle.userData.wobbleSpeed * 0.7) * particle.userData.wobbleAmount;
+
+                    // Reset when too high
+                    if (particle.position.y > 12) {
+                        particle.position.y = 0.5;
+                        particle.userData.startX = -30 + Math.random() * 60;
+                        particle.userData.startZ = -30 + Math.random() * 60;
+                    }
+                }
+                // Giant rubber ducky - gentle bob
+                else if (particle.userData.isGiantDuck) {
+                    particle.position.y = particle.userData.baseY + Math.sin(time * 1.5) * 0.3;
+                    particle.rotation.y += 0.002;
+                }
+                // Small rubber ducks - faster bob
+                else if (particle.userData.isSmallDuck) {
+                    particle.position.y = particle.userData.baseY + Math.sin(time * particle.userData.bobSpeed) * particle.userData.bobAmount;
+                    particle.rotation.y += 0.01;
+                }
                 // Rising steam
-                if (particle.userData.riseSpeed && particle.userData.maxY) {
+                else if (particle.userData.riseSpeed && particle.userData.maxY) {
                     particle.position.y += particle.userData.riseSpeed;
                     particle.position.x += Math.sin(time * 2 + particle.position.y) * particle.userData.driftSpeed;
-                    particle.material.opacity = Math.max(0, particle.material.opacity - 0.001);
+                    if (particle.material) {
+                        particle.material.opacity = Math.max(0, particle.material.opacity - 0.001);
+                    }
 
                     // Reset when too high or faded
-                    if (particle.position.y > particle.userData.maxY || particle.material.opacity <= 0) {
-                        particle.position.y = 1;
-                        particle.position.x = -19 + Math.random() * 12;
-                        particle.position.z = -20 + Math.random() * 6;
-                        particle.material.opacity = 0.2 + Math.random() * 0.2;
+                    if (particle.position.y > particle.userData.maxY || (particle.material && particle.material.opacity <= 0)) {
+                        particle.position.y = 1 + Math.random() * 4;
+                        particle.position.x = 25 + Math.random() * 8;
+                        particle.position.z = -25 + Math.random() * 8;
+                        if (particle.material) particle.material.opacity = 0.15 + Math.random() * 0.15;
                     }
                 }
                 // Water drips
                 else if (particle.userData.fallSpeed !== undefined && particle.userData.dripTimer !== undefined) {
                     particle.userData.dripTimer++;
                     if (particle.userData.dripTimer > 60 + Math.random() * 100) {
-                        // Start falling
                         particle.userData.fallSpeed = Math.min(particle.userData.fallSpeed + 0.02, particle.userData.maxFallSpeed);
                         particle.position.y -= particle.userData.fallSpeed;
 
-                        // Reset when hit floor
                         if (particle.position.y < 0.1) {
                             particle.position.y = particle.userData.startY;
                             particle.userData.fallSpeed = 0;
                             particle.userData.dripTimer = 0;
                         }
                     }
-                }
-                // Bobbing rubber duck in bathtub
-                else if (particle.userData.bobSpeed && !particle.userData.swimAngle) {
-                    particle.position.y = 1.5 + Math.sin(time * particle.userData.bobSpeed) * 0.1;
-                    particle.rotation.y += 0.005;
                 }
             });
             break;
@@ -3806,23 +7313,31 @@ function generateRoomCode() {
     return code;
 }
 
-// Try multiple PeerJS servers
+// Try multiple PeerJS servers - put most reliable first
 const PEER_SERVERS = [
-    { host: '0.peerjs.com', port: 443, secure: true, path: '/' },
-    { host: 'peerjs.92k.de', port: 443, secure: true, path: '/' }
+    null, // Use default PeerJS cloud (no explicit config)
+    { host: '0.peerjs.com', port: 443, secure: true, path: '/' }
 ];
 let currentServerIndex = 0;
 
-const PEER_CONFIG = {
-    debug: 1,
-    ...PEER_SERVERS[currentServerIndex],
-    config: {
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-        ]
+function getPeerConfig(serverInfo) {
+    const config = {
+        debug: 0,
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:global.stun.twilio.com:3478' }
+            ]
+        }
+    };
+    if (serverInfo) {
+        Object.assign(config, serverInfo);
     }
-};
+    return config;
+}
+
+const PEER_CONFIG = getPeerConfig(PEER_SERVERS[0]);
 
 let createGameRetries = 0;
 const MAX_RETRIES = 2;
@@ -3832,24 +7347,16 @@ function createGame() {
     state.isHost = true;
 
     const serverInfo = PEER_SERVERS[currentServerIndex];
-    setStatus('Connecting to ' + serverInfo.host + '...');
+    const serverName = serverInfo ? serverInfo.host : 'PeerJS Cloud';
+    setStatus('Connecting to ' + serverName + '...');
 
     if (state.peer) {
         try { state.peer.destroy(); } catch(e) {}
     }
 
-    console.log('Creating peer with ID: hideseek3d-' + state.roomCode + ' on server: ' + serverInfo.host);
+    console.log('Creating peer with ID: hideseek3d-' + state.roomCode + ' on server: ' + serverName);
 
-    const peerConfig = {
-        debug: 1,
-        ...serverInfo,
-        config: {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ]
-        }
-    };
+    const peerConfig = getPeerConfig(serverInfo);
 
     try {
         state.peer = new Peer('hideseek3d-' + state.roomCode, peerConfig);
@@ -3864,7 +7371,7 @@ function createGame() {
         console.log('Connection timeout, trying next server...');
         if (state.peer) state.peer.destroy();
         tryNextServer();
-    }, 5000);
+    }, 3000);
 
     state.peer.on('open', (id) => {
         clearTimeout(connectionTimeout);
@@ -3934,7 +7441,7 @@ function joinGame() {
 
     if (state.peer) state.peer.destroy();
 
-    state.peer = new Peer(PEER_CONFIG);
+    state.peer = new Peer(getPeerConfig(PEER_SERVERS[currentServerIndex]));
 
     state.peer.on('open', () => {
         state.conn = state.peer.connect('hideseek3d-' + code, { reliable: true });
@@ -4030,6 +7537,9 @@ function startGame() {
     state.dangerLevel = 0;
     state.panicMode = false;
 
+    // Clear any stuck portal transition from previous round
+    cleanupPortalTransition();
+
     // Stop any lingering sounds
     SoundManager.stopHeartbeat();
 
@@ -4062,11 +7572,23 @@ function startGame() {
 
     updateTimerDisplay();
 
-    // Create 3D scene
+    // Create 3D scene (arena first, players after skin loads)
     createArena();
-    createPlayers();
-    createDustParticles();
-    createCharacterGlow();
+
+    // Function to finish setup after skin is ready
+    const finishPlayerSetup = () => {
+        createPlayers();
+        createDustParticles();
+        createCharacterGlow();
+    };
+
+    // Reload player models with selected skin - wait for it before creating players
+    const isLoadingCustomSkin = reloadPlayerModels(finishPlayerSetup);
+
+    // If not loading a custom skin, create players immediately
+    if (!isLoadingCustomSkin) {
+        finishPlayerSetup();
+    }
 
     // Initialize collectibles
     state.collectibles = [];
@@ -4085,6 +7607,10 @@ function startGame() {
     } else {
         deactivateVisionCone();
     }
+
+    // NOTE: Player model loading is handled by reloadPlayerModels() above
+    // The opponent uses the default model loaded during initialization
+    // This prevents race conditions from multiple async loaders
 
     showScreen('game');
 
@@ -4136,6 +7662,14 @@ function updateTimerDisplay() {
 function endGame(reason) {
     state.gameOver = true;
     state.gameStarted = false;
+
+    // Stop all walking animations immediately
+    if (playerMixer) {
+        playerMixer.stopAllAction();
+    }
+    if (opponentMixer) {
+        opponentMixer.stopAllAction();
+    }
 
     // Deactivate vision cone
     deactivateVisionCone();
@@ -4239,8 +7773,80 @@ function startVictoryCelebration(title, message, isWinner) {
     let celebrateMixer = null;
     let usedCelebrateModel = false;
 
-    // Seeker wins - use seeker celebrate model
-    if (isWinner && state.role === 'seeker' && seekerCelebrateModel) {
+    // Check if player has a custom skin equipped
+    const selectedSkin = StoreManager.getSelectedSkin();
+    const hasCustomSkin = selectedSkin && selectedSkin.id !== 'default_seeker' && selectedSkin.id !== 'default_hider';
+
+    // Penguin wins - use special penguin celebration dance!
+    if (isWinner && selectedSkin && selectedSkin.id === 'penguin' && penguinCelebrateModel) {
+        console.log('Penguin wins! Using penguin celebrate animation');
+        celebrateMesh = THREE.SkeletonUtils.clone(penguinCelebrateModel);
+        celebrateMesh.position.set(winnerX, 0, winnerZ);
+        celebrateMesh.rotation.y = -Math.PI / 2;
+        scene.add(celebrateMesh);
+
+        if (playerMesh) playerMesh.visible = false;
+
+        if (penguinCelebrateAnimations && penguinCelebrateAnimations.length > 0) {
+            celebrateMixer = new THREE.AnimationMixer(celebrateMesh);
+            const action = celebrateMixer.clipAction(penguinCelebrateAnimations[0]);
+            action.setLoop(THREE.LoopRepeat);
+            action.play();
+        }
+        usedCelebrateModel = true;
+    }
+    // Custom skins with celebration animation - load and use their special celebration
+    else if (isWinner && hasCustomSkin && selectedSkin.celebrationPath) {
+        console.log('Loading custom celebration for:', selectedSkin.name);
+        if (playerMesh) playerMesh.visible = false;
+
+        // Load celebration model dynamically
+        const loader = new THREE.GLTFLoader();
+        if (typeof dracoLoader !== 'undefined') {
+            loader.setDRACOLoader(dracoLoader);
+        }
+
+        loader.load(selectedSkin.celebrationPath,
+            (gltf) => {
+                const celebModel = gltf.scene;
+                celebModel.scale.set(selectedSkin.scale || 6, selectedSkin.scale || 6, selectedSkin.scale || 6);
+                celebModel.position.set(winnerX, 0, winnerZ);
+                celebModel.rotation.y = -Math.PI / 2;
+                scene.add(celebModel);
+
+                // Store reference for cleanup
+                state.celebration.customCelebrateMesh = celebModel;
+
+                if (gltf.animations && gltf.animations.length > 0) {
+                    const mixer = new THREE.AnimationMixer(celebModel);
+                    const action = mixer.clipAction(gltf.animations[0]);
+                    action.setLoop(THREE.LoopRepeat);
+                    action.play();
+                    state.celebration.celebrateMixer = mixer;
+                }
+                console.log('Custom celebration loaded for:', selectedSkin.name);
+            },
+            null,
+            (error) => {
+                console.error('Failed to load celebration:', error);
+                // Fallback to regular mesh
+                if (playerMesh) playerMesh.visible = true;
+            }
+        );
+        usedCelebrateModel = true;
+    }
+    // Other custom skins without celebration - use their current mesh
+    else if (isWinner && hasCustomSkin && playerMesh) {
+        console.log('Using custom skin for celebration:', selectedSkin.name);
+        celebrateMesh = playerMesh;
+        celebrateMesh.visible = true;
+        // Face the camera
+        celebrateMesh.rotation.y = -Math.PI / 2;
+        // Keep any existing animation mixer from the player mesh
+        usedCelebrateModel = false; // Don't mark as celebrate model so it doesn't get removed
+    }
+    // Seeker wins - use seeker celebrate model (only if no custom skin)
+    else if (isWinner && state.role === 'seeker' && seekerCelebrateModel) {
         celebrateMesh = THREE.SkeletonUtils.clone(seekerCelebrateModel);
         celebrateMesh.position.set(winnerX, 0, winnerZ);
         // Face the camera (rotate -90 degrees to face front toward camera)
@@ -4279,6 +7885,15 @@ function startVictoryCelebration(title, message, isWinner) {
         }
     }
 
+    // Hide the loser's mesh during celebration
+    const loserMesh = isWinner ? opponentMesh : playerMesh;
+    if (loserMesh && loserMesh !== celebrateMesh) {
+        loserMesh.visible = false;
+    }
+
+    // Store original scale for the bounce animation
+    const originalScale = celebrateMesh ? celebrateMesh.scale.clone() : new THREE.Vector3(1, 1, 1);
+
     // Store celebration state
     state.celebration = {
         active: true,
@@ -4288,6 +7903,8 @@ function startVictoryCelebration(title, message, isWinner) {
         message: message,
         winnerMesh: celebrateMesh,
         originalMesh: winnerMesh,
+        originalScale: originalScale,
+        loserMesh: loserMesh,
         celebrateMixer: celebrateMixer,
         usedCelebrateModel: usedCelebrateModel,
         startX: winnerX,
@@ -4327,9 +7944,14 @@ function celebrationAnimate() {
             const spins = 2;
             winnerMesh.rotation.y = progress * Math.PI * 2 * spins;
 
-            // Scale up effect
+            // Scale up effect - preserve original scale
             const scaleBoost = 1 + Math.sin(progress * Math.PI) * 0.3;
-            winnerMesh.scale.set(scaleBoost, scaleBoost, scaleBoost);
+            const origScale = state.celebration.originalScale;
+            winnerMesh.scale.set(
+                origScale.x * scaleBoost,
+                origScale.y * scaleBoost,
+                origScale.z * scaleBoost
+            );
         }
 
         // Camera follows winner and zooms in
@@ -4361,10 +7983,8 @@ function celebrationAnimate() {
         );
     }
 
-    // Update animation mixers
-    const delta = 0.016;
-    if (playerMixer) playerMixer.update(delta);
-    if (opponentMixer) opponentMixer.update(delta);
+    // Only update the celebration mixer (player/opponent mixers are stopped)
+    // The celebrateMixer is already updated above when usedCelebrateModel is true
 
     // Render the scene
     renderer.render(scene, camera);
@@ -4390,6 +8010,18 @@ function celebrationAnimate() {
             // Reset winner mesh position and scale
             winnerMesh.position.y = 0;
             winnerMesh.scale.set(1, 1, 1);
+        }
+
+        // Clean up custom celebration mesh if used
+        if (state.celebration.customCelebrateMesh) {
+            scene.remove(state.celebration.customCelebrateMesh);
+            state.celebration.customCelebrateMesh = null;
+            if (playerMesh) playerMesh.visible = true;
+        }
+
+        // Restore loser mesh visibility
+        if (state.celebration.loserMesh) {
+            state.celebration.loserMesh.visible = true;
         }
 
         showCelebration(state.celebration.title, state.celebration.message, state.celebration.isWinner);
@@ -4479,6 +8111,9 @@ function advanceToNextBoard() {
 
 function checkCatch() {
     if (state.role !== 'seeker') return;
+
+    // Can't catch while in portal transition
+    if (isInPortalTransition()) return;
 
     // Can't catch invisible hider
     if (state.hiderInvisible) return;
@@ -4579,6 +8214,9 @@ function createCatchParticles() {
 function checkAICatch() {
     if (!state.isSoloMode || state.role !== 'hider') return;
 
+    // Can't catch while in portal transition
+    if (isInPortalTransition()) return;
+
     // Can't catch invisible hider
     if (state.hiderInvisible) return;
 
@@ -4598,6 +8236,12 @@ function checkAICatch() {
 // ==========================================
 
 function updatePlayer(deltaTime) {
+    // Freeze movement during portal transition
+    if (isInPortalTransition()) {
+        sendPosition(); // Still send position updates
+        return;
+    }
+
     let dx = 0, dz = 0;
 
     if (state.keys.up) dz -= 1;
@@ -4612,7 +8256,12 @@ function updatePlayer(deltaTime) {
     }
 
     if (dx !== 0 || dz !== 0) {
-        state.player.angle = Math.atan2(dz, dx);
+        let angle = Math.atan2(dz, dx);
+        // Reverse cone direction for left/right movement (flip 180 degrees)
+        if (Math.abs(dx) > Math.abs(dz)) {
+            angle = angle + Math.PI;
+        }
+        state.player.angle = angle;
     }
 
     let baseSpeed = state.role === 'seeker' ? CONFIG.SEEKER_SPEED : CONFIG.HIDER_SPEED;
@@ -4652,6 +8301,9 @@ function updatePlayer(deltaTime) {
 
     // Safety check - push out if stuck
     pushOutOfWalls();
+
+    // Check portal teleportation
+    checkPortalTeleport();
 
     // Boost cooldown
     if (state.player.boostCooldown > 0) {
@@ -4693,6 +8345,12 @@ function updatePlayer(deltaTime) {
 
 function checkWallCollision(x, z) {
     const result = { x: false, z: false, pushX: 0, pushZ: 0 };
+
+    // Skip wall collision if hider is in phase walk mode
+    if (state.hiderPhaseWalk && state.role === 'hider') {
+        return result;
+    }
+
     const r = CONFIG.PLAYER_RADIUS;
 
     // Check collision with 3D model colliders (circular)
@@ -4745,6 +8403,11 @@ function checkWallCollision(x, z) {
 
 // Push player out of any walls they're stuck in
 function pushOutOfWalls() {
+    // Skip if hider is in phase walk mode
+    if (state.hiderPhaseWalk && state.role === 'hider') {
+        return;
+    }
+
     const r = CONFIG.PLAYER_RADIUS;
     let pushed = true;
     let iterations = 0;
@@ -4869,83 +8532,501 @@ function updateSeekerAI(deltaTime) {
     }
 
     const ai = state.ai;
-    const playerVisible = canAISeePoint(state.player.x, state.player.z);
 
-    if (playerVisible) {
-        // Chase the player
-        ai.state = 'chase';
-        ai.lastSeenPlayer = { x: state.player.x, z: state.player.z, time: Date.now() };
-        ai.targetX = state.player.x;
-        ai.targetZ = state.player.z;
-    } else if (ai.lastSeenPlayer && Date.now() - ai.lastSeenPlayer.time < 3000) {
-        // Go to last known position
-        ai.targetX = ai.lastSeenPlayer.x;
-        ai.targetZ = ai.lastSeenPlayer.z;
+    // Initialize AI navigation state if needed
+    if (!ai.lastPosition) {
+        ai.lastPosition = { x: state.opponent.x, z: state.opponent.z };
+        ai.stuckTimer = 0;
+        ai.waypoint = null;
+        ai.waypointTime = 0;
+        ai.failedDirections = [];
+        ai.lastDirectAngle = null;
+        ai.portalCooldown = 0;
+        ai.totalStuckTime = 0;
+        ai.positionHistory = [];
+        ai.oscillationCount = 0;
+        ai.explorationTarget = null;
+    }
+
+    const aiX = state.opponent.x;
+    const aiZ = state.opponent.z;
+    const playerX = state.player.x;
+    const playerZ = state.player.z;
+
+    // Track position history for oscillation detection
+    ai.positionHistory = ai.positionHistory || [];
+    ai.positionHistory.push({ x: aiX, z: aiZ });
+    if (ai.positionHistory.length > 30) ai.positionHistory.shift();
+
+    // Detect oscillation (back and forth movement)
+    if (ai.positionHistory.length >= 15) {
+        let backtrackCount = 0;
+        const recent = ai.positionHistory.slice(-15);
+        for (let i = 5; i < recent.length; i++) {
+            for (let j = 0; j < i - 3; j++) {
+                const d = Math.sqrt(Math.pow(recent[i].x - recent[j].x, 2) + Math.pow(recent[i].z - recent[j].z, 2));
+                if (d < 5) backtrackCount++;
+            }
+        }
+        ai.oscillationCount = ai.oscillationCount || 0;
+        ai.oscillationCount = backtrackCount > 10 ? ai.oscillationCount + 1 : Math.max(0, ai.oscillationCount - 1);
+    }
+
+    // Decrease AI portal cooldown
+    if (ai.portalCooldown > 0) {
+        ai.portalCooldown -= deltaTime;
+    }
+
+    // Check if AI is stuck (hasn't moved much recently)
+    const movedDist = Math.sqrt(
+        Math.pow(state.opponent.x - ai.lastPosition.x, 2) +
+        Math.pow(state.opponent.z - ai.lastPosition.z, 2)
+    );
+
+    if (movedDist < 0.5) {
+        ai.stuckTimer += deltaTime;
+        ai.totalStuckTime += deltaTime;
     } else {
-        // Patrol
-        ai.state = 'patrol';
-        if (ai.thinkTimer <= 0) {
-            ai.thinkTimer = 2000 + Math.random() * 2000;
-            ai.patrolAngle += (Math.random() - 0.5) * Math.PI;
-            const patrolDist = 15 + Math.random() * 15;
-            ai.targetX = state.opponent.x + Math.cos(ai.patrolAngle) * patrolDist;
-            ai.targetZ = state.opponent.z + Math.sin(ai.patrolAngle) * patrolDist;
-            // Keep within arena
-            const dist = Math.sqrt(ai.targetX * ai.targetX + ai.targetZ * ai.targetZ);
-            if (dist > CONFIG.ARENA_RADIUS - 5) {
-                const angle = Math.atan2(ai.targetZ, ai.targetX);
-                ai.targetX = Math.cos(angle) * (CONFIG.ARENA_RADIUS - 10);
-                ai.targetZ = Math.sin(angle) * (CONFIG.ARENA_RADIUS - 10);
+        ai.stuckTimer = 0;
+        ai.totalStuckTime = 0;
+        ai.lastPosition = { x: state.opponent.x, z: state.opponent.z };
+        if (movedDist > 2) {
+            ai.failedDirections = [];
+        }
+    }
+
+    const distToPlayer = Math.sqrt(Math.pow(playerX - aiX, 2) + Math.pow(playerZ - aiZ, 2));
+    const angleToPlayer = Math.atan2(playerZ - aiZ, playerX - aiX);
+    const wallBlocking = isWallBlockingPath(aiX, aiZ, playerX, playerZ);
+
+    // SMART PORTAL: Proactively use portal if player is on opposite side and path blocked
+    if (ai.portalCooldown <= 0 && portals.length >= 2 && wallBlocking && distToPlayer > 40) {
+        const aiSide = aiX < 0 ? 'left' : 'right';
+        const playerSide = playerX < 0 ? 'left' : 'right';
+
+        if (aiSide !== playerSide) {
+            let bestPortal = null;
+            let bestBenefit = 0;
+
+            for (const portal of portals) {
+                const distToPortal = Math.sqrt(Math.pow(aiX - portal.x, 2) + Math.pow(aiZ - portal.z, 2));
+                const exitDistToPlayer = Math.sqrt(Math.pow(portal.targetX - playerX, 2) + Math.pow(portal.targetZ - playerZ, 2));
+                const benefit = (distToPlayer - exitDistToPlayer) - (distToPortal * 0.3);
+                if (benefit > bestBenefit) {
+                    bestBenefit = benefit;
+                    bestPortal = portal;
+                }
+            }
+
+            if (bestPortal && bestBenefit > 15) {
+                const distToPortal = Math.sqrt(Math.pow(aiX - bestPortal.x, 2) + Math.pow(aiZ - bestPortal.z, 2));
+                if (distToPortal < 5) {
+                    // Teleport through portal
+                    state.opponent.x = bestPortal.targetX;
+                    state.opponent.z = bestPortal.targetZ;
+                    if (opponentMesh) {
+                        opponentMesh.position.x = bestPortal.targetX;
+                        opponentMesh.position.z = bestPortal.targetZ;
+                    }
+                    ai.portalCooldown = 5000;
+                    ai.waypoint = null;
+                    ai.failedDirections = [];
+                    ai.oscillationCount = 0;
+                    ai.explorationTarget = null;
+                    console.log('AI used portal strategically!');
+                    return;
+                } else {
+                    // Navigate to portal
+                    moveAIToward(bestPortal.x, bestPortal.z, CONFIG.SEEKER_SPEED, deltaTime);
+                    return;
+                }
             }
         }
     }
 
-    // Move toward target
+    // If oscillating or stuck too long, enter exploration mode
+    if ((ai.oscillationCount || 0) > 4 || ai.totalStuckTime > 500) {
+        const angleToPlayer = Math.atan2(playerZ - aiZ, playerX - aiX);
+        ai.explorationTarget = null;
+
+        // Try portal areas first - they're guaranteed clear
+        for (const portal of portals) {
+            const d = Math.sqrt(Math.pow(aiX - portal.x, 2) + Math.pow(aiZ - portal.z, 2));
+            if (d > 15 && !isWallBlockingPath(aiX, aiZ, portal.x, portal.z)) {
+                ai.explorationTarget = { x: portal.x, z: portal.z };
+                break;
+            }
+        }
+
+        // Try perpendicular and opposite directions
+        if (!ai.explorationTarget) {
+            const angles = [angleToPlayer + Math.PI/2, angleToPlayer - Math.PI/2, angleToPlayer + Math.PI];
+            for (const angle of angles) {
+                for (const dist of [50, 70, 90]) {
+                    const tx = aiX + Math.cos(angle) * dist;
+                    const tz = aiZ + Math.sin(angle) * dist;
+                    if (Math.sqrt(tx*tx + tz*tz) < CONFIG.ARENA_RADIUS - 10 &&
+                        isPositionClear(tx, tz) && !isWallBlockingPath(aiX, aiZ, tx, tz)) {
+                        ai.explorationTarget = { x: tx, z: tz };
+                        break;
+                    }
+                }
+                if (ai.explorationTarget) break;
+            }
+        }
+
+        ai.oscillationCount = 0;
+        ai.totalStuckTime = 0;
+        ai.failedDirections = [];
+    }
+
+    // Exploration mode - move to new area to find path
+    if (ai.explorationTarget) {
+        const d = Math.sqrt(Math.pow(ai.explorationTarget.x - aiX, 2) + Math.pow(ai.explorationTarget.z - aiZ, 2));
+        if (d < 8 || !wallBlocking) {
+            ai.explorationTarget = null;
+        } else {
+            moveAIToward(ai.explorationTarget.x, ai.explorationTarget.z, CONFIG.SEEKER_SPEED, deltaTime);
+            return;
+        }
+    }
+
+    // If stuck briefly, find a new waypoint
+    if (ai.stuckTimer > 100) {
+        if (ai.lastDirectAngle !== null) {
+            ai.failedDirections.push(ai.lastDirectAngle);
+            if (ai.failedDirections.length > 8) ai.failedDirections.shift();
+        }
+        ai.waypoint = findBestWaypoint(aiX, aiZ, playerX, playerZ, ai.failedDirections);
+        ai.waypointTime = 0;
+        ai.stuckTimer = 0;
+    }
+
+    // If we have a waypoint, navigate to it
+    if (ai.waypoint) {
+        ai.waypointTime += deltaTime;
+
+        const toWaypointX = ai.waypoint.x - aiX;
+        const toWaypointZ = ai.waypoint.z - aiZ;
+        const distToWaypoint = Math.sqrt(toWaypointX * toWaypointX + toWaypointZ * toWaypointZ);
+
+        // Check if we reached the waypoint or have clear line to player
+        if (distToWaypoint < 5 || ai.waypointTime > 1500 ||
+            !isWallBlockingPath(aiX, aiZ, playerX, playerZ)) {
+            ai.waypoint = null;
+            ai.waypointTime = 0;
+        } else {
+            ai.lastDirectAngle = Math.atan2(toWaypointZ, toWaypointX);
+            // AI seeker uses full seeker speed when navigating
+            moveAIToward(ai.waypoint.x, ai.waypoint.z, CONFIG.SEEKER_SPEED * 0.95, deltaTime);
+            return;
+        }
+    }
+
+    // If wall is blocking and no waypoint, find one
+    if (wallBlocking) {
+        ai.waypoint = findBestWaypoint(aiX, aiZ, playerX, playerZ, ai.failedDirections);
+        if (ai.waypoint) {
+            ai.waypointTime = 0;
+            const toWaypointX = ai.waypoint.x - aiX;
+            const toWaypointZ = ai.waypoint.z - aiZ;
+            ai.lastDirectAngle = Math.atan2(toWaypointZ, toWaypointX);
+            // AI seeker uses full seeker speed when navigating
+            moveAIToward(ai.waypoint.x, ai.waypoint.z, CONFIG.SEEKER_SPEED * 0.95, deltaTime);
+            return;
+        }
+    }
+
+    // Direct chase mode - clear path to player
+    ai.state = 'chase';
+    ai.lastDirectAngle = angleToPlayer;
+
+    // Add slight prediction - aim slightly ahead of player movement
+    const playerVelX = state.player.velocityX || 0;
+    const playerVelZ = state.player.velocityZ || 0;
+    const predictionTime = 0.3;
+
+    ai.targetX = playerX + playerVelX * predictionTime;
+    ai.targetZ = playerZ + playerVelZ * predictionTime;
+
+    // AI seeker uses full seeker speed when chasing
     moveAIToward(ai.targetX, ai.targetZ, CONFIG.SEEKER_SPEED, deltaTime);
+}
+
+// Try to use a portal to get unstuck - returns true if teleported
+function tryAIPortal() {
+    if (portals.length < 2) return false;
+
+    const aiX = state.opponent.x;
+    const aiZ = state.opponent.z;
+    const playerX = state.player.x;
+    const playerZ = state.player.z;
+
+    // Find the nearest portal to the AI
+    let nearestPortal = null;
+    let nearestDist = Infinity;
+
+    for (const portal of portals) {
+        const dx = aiX - portal.x;
+        const dz = aiZ - portal.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < nearestDist) {
+            nearestDist = dist;
+            nearestPortal = portal;
+        }
+    }
+
+    if (!nearestPortal || nearestDist > 100) return false; // Too far from any portal
+
+    // Calculate distance from AI to player currently
+    const currentDistToPlayer = Math.sqrt(
+        Math.pow(aiX - playerX, 2) + Math.pow(aiZ - playerZ, 2)
+    );
+
+    // Calculate distance from portal exit to player
+    const exitDistToPlayer = Math.sqrt(
+        Math.pow(nearestPortal.targetX - playerX, 2) +
+        Math.pow(nearestPortal.targetZ - playerZ, 2)
+    );
+
+    // Only use portal if it gets us closer to the player
+    if (exitDistToPlayer < currentDistToPlayer - 20) {
+        // Move AI toward the portal first if not close enough
+        if (nearestDist > 5) {
+            // Navigate toward portal
+            state.ai.waypoint = { x: nearestPortal.x, z: nearestPortal.z };
+            return false;
+        }
+
+        // Teleport AI to the other portal
+        state.opponent.x = nearestPortal.targetX;
+        state.opponent.z = nearestPortal.targetZ;
+
+        // Update the opponent mesh position
+        if (opponentMesh) {
+            opponentMesh.position.x = nearestPortal.targetX;
+            opponentMesh.position.z = nearestPortal.targetZ;
+        }
+
+        console.log('AI used portal to teleport!');
+        return true;
+    }
+
+    return false;
+}
+
+// Check if a wall is blocking the path between two points
+function isWallBlockingPath(x1, z1, x2, z2) {
+    const steps = 10;
+    const dx = (x2 - x1) / steps;
+    const dz = (z2 - z1) / steps;
+
+    for (let i = 1; i < steps; i++) {
+        const checkX = x1 + dx * i;
+        const checkZ = z1 + dz * i;
+
+        for (const wall of currentBoard.walls) {
+            if (checkX >= wall.x && checkX <= wall.x + wall.w &&
+                checkZ >= wall.z && checkZ <= wall.z + wall.d) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Find the best waypoint to navigate around walls to reach the player
+function findBestWaypoint(aiX, aiZ, playerX, playerZ, failedDirections) {
+    const angleToPlayer = Math.atan2(playerZ - aiZ, playerX - aiX);
+
+    // Try multiple distances and angles to find a clear path
+    const distances = [15, 25, 40, 60];
+    const angleOffsets = [
+        Math.PI / 4, -Math.PI / 4,      // 45 degrees
+        Math.PI / 2, -Math.PI / 2,      // 90 degrees
+        Math.PI * 3/4, -Math.PI * 3/4,  // 135 degrees
+        Math.PI / 6, -Math.PI / 6,      // 30 degrees
+        Math.PI * 2/3, -Math.PI * 2/3   // 120 degrees
+    ];
+
+    let bestWaypoint = null;
+    let bestScore = -Infinity;
+
+    for (const dist of distances) {
+        for (const offset of angleOffsets) {
+            const angle = angleToPlayer + offset;
+
+            // Skip if this direction recently failed
+            let isFailed = false;
+            for (const failedAngle of failedDirections) {
+                if (Math.abs(normalizeAngle(angle - failedAngle)) < Math.PI / 6) {
+                    isFailed = true;
+                    break;
+                }
+            }
+            if (isFailed) continue;
+
+            const waypointX = aiX + Math.cos(angle) * dist;
+            const waypointZ = aiZ + Math.sin(angle) * dist;
+
+            // Check if waypoint position is clear
+            if (!isPositionClear(waypointX, waypointZ)) continue;
+
+            // Check if we can reach the waypoint
+            if (isWallBlockingPath(aiX, aiZ, waypointX, waypointZ)) continue;
+
+            // Check if waypoint has better line of sight to player
+            const canSeePlayer = !isWallBlockingPath(waypointX, waypointZ, playerX, playerZ);
+
+            // Score the waypoint
+            const distFromWaypointToPlayer = Math.sqrt(
+                Math.pow(playerX - waypointX, 2) + Math.pow(playerZ - waypointZ, 2)
+            );
+
+            let score = 0;
+            if (canSeePlayer) score += 100; // Big bonus for clear sight
+            score -= distFromWaypointToPlayer * 0.5; // Prefer closer to player
+            score -= Math.abs(offset) * 10; // Slight preference for smaller angle changes
+            score += dist * 0.2; // Slight preference for farther waypoints
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestWaypoint = { x: waypointX, z: waypointZ };
+            }
+        }
+    }
+
+    // If no good waypoint found, try a random clear direction
+    if (!bestWaypoint) {
+        for (let i = 0; i < 16; i++) {
+            const angle = (i / 16) * Math.PI * 2;
+            const waypointX = aiX + Math.cos(angle) * 20;
+            const waypointZ = aiZ + Math.sin(angle) * 20;
+
+            if (isPositionClear(waypointX, waypointZ) &&
+                !isWallBlockingPath(aiX, aiZ, waypointX, waypointZ)) {
+                bestWaypoint = { x: waypointX, z: waypointZ };
+                break;
+            }
+        }
+    }
+
+    return bestWaypoint;
+}
+
+// Check if a position is clear of walls and within bounds
+function isPositionClear(x, z) {
+    const r = CONFIG.PLAYER_RADIUS + 2;
+
+    // Check arena bounds
+    const distFromCenter = Math.sqrt(x * x + z * z);
+    if (distFromCenter > CONFIG.ARENA_RADIUS - r) return false;
+
+    // Check walls
+    for (const wall of currentBoard.walls) {
+        if (x + r > wall.x && x - r < wall.x + wall.w &&
+            z + r > wall.z && z - r < wall.z + wall.d) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// Normalize angle to -PI to PI
+function normalizeAngle(angle) {
+    while (angle > Math.PI) angle -= Math.PI * 2;
+    while (angle < -Math.PI) angle += Math.PI * 2;
+    return angle;
 }
 
 function updateHiderAI(deltaTime) {
     const ai = state.ai;
+
+    // Initialize hider AI state
+    if (!ai.hiderLastPosition) {
+        ai.hiderLastPosition = { x: state.opponent.x, z: state.opponent.z };
+        ai.hiderStuckTimer = 0;
+        ai.hiderUnstuckAngle = 0;
+        ai.hiderUnstuckTime = 0;
+        ai.pauseTimer = 0; // Occasional pause to make catchable
+    }
+
+    // Check if hider is stuck
+    const movedDist = Math.sqrt(
+        Math.pow(state.opponent.x - ai.hiderLastPosition.x, 2) +
+        Math.pow(state.opponent.z - ai.hiderLastPosition.z, 2)
+    );
+
+    if (movedDist < 0.5) {
+        ai.hiderStuckTimer += deltaTime;
+    } else {
+        ai.hiderStuckTimer = 0;
+        ai.hiderLastPosition = { x: state.opponent.x, z: state.opponent.z };
+    }
+
+    // If stuck, escape in random direction
+    if (ai.hiderStuckTimer > 400) {
+        ai.hiderUnstuckAngle = Math.random() * Math.PI * 2;
+        ai.hiderUnstuckTime = 600;
+        ai.hiderStuckTimer = 0;
+    }
+
+    // Unstuck mode
+    if (ai.hiderUnstuckTime > 0) {
+        ai.hiderUnstuckTime -= deltaTime;
+        ai.targetX = state.opponent.x + Math.cos(ai.hiderUnstuckAngle) * 15;
+        ai.targetZ = state.opponent.z + Math.sin(ai.hiderUnstuckAngle) * 15;
+        moveAIToward(ai.targetX, ai.targetZ, CONFIG.HIDER_SPEED * 0.75, deltaTime);
+        return;
+    }
+
+    // Occasional pause to make the hider catchable (small chance to pause for 500-1000ms)
+    if (ai.pauseTimer > 0) {
+        ai.pauseTimer -= deltaTime;
+        return; // Don't move during pause
+    }
+    if (Math.random() < 0.003) { // Small chance to pause
+        ai.pauseTimer = 500 + Math.random() * 500;
+        return;
+    }
+
+    // ALWAYS flee from the seeker
+    ai.state = 'flee';
+
     const distToSeeker = Math.sqrt(
         Math.pow(state.opponent.x - state.player.x, 2) +
         Math.pow(state.opponent.z - state.player.z, 2)
     );
 
-    // Check if seeker can see us
-    const seekerCanSeeUs = canSeekerSeePoint(state.opponent.x, state.opponent.z);
+    // Calculate flee direction (away from seeker)
+    let fleeAngle = Math.atan2(
+        state.opponent.z - state.player.z,
+        state.opponent.x - state.player.x
+    );
 
-    if (distToSeeker < 20 || seekerCanSeeUs) {
-        // Flee from seeker
-        ai.state = 'flee';
-        const fleeAngle = Math.atan2(
-            state.opponent.z - state.player.z,
-            state.opponent.x - state.player.x
-        );
-        ai.targetX = state.opponent.x + Math.cos(fleeAngle) * 30;
-        ai.targetZ = state.opponent.z + Math.sin(fleeAngle) * 30;
+    // Add randomness to flee direction (makes it less perfect, easier to catch)
+    // More random when seeker is far, more direct when close
+    const randomness = distToSeeker > 25 ? 0.8 : 0.3;
+    fleeAngle += (Math.random() - 0.5) * randomness;
 
-        // Try to find cover
-        const nearestWall = findNearestWallForCover();
-        if (nearestWall) {
-            ai.targetX = nearestWall.x;
-            ai.targetZ = nearestWall.z;
-        }
-    } else {
-        // Hide behind walls or stay still
-        ai.state = 'hide';
-        if (ai.thinkTimer <= 0) {
-            ai.thinkTimer = 3000 + Math.random() * 3000;
-            // Find a good hiding spot
-            const hidingSpot = findHidingSpot();
-            if (hidingSpot) {
-                ai.targetX = hidingSpot.x;
-                ai.targetZ = hidingSpot.z;
-            }
-        }
+    // Set target position away from seeker
+    const fleeDist = 20 + Math.random() * 10;
+    ai.targetX = state.opponent.x + Math.cos(fleeAngle) * fleeDist;
+    ai.targetZ = state.opponent.z + Math.sin(fleeAngle) * fleeDist;
+
+    // Keep within arena bounds
+    const targetDist = Math.sqrt(ai.targetX * ai.targetX + ai.targetZ * ai.targetZ);
+    if (targetDist > CONFIG.ARENA_RADIUS - 10) {
+        // If hitting arena edge, run along the edge instead
+        const edgeAngle = Math.atan2(ai.targetZ, ai.targetX);
+        const tangentAngle = edgeAngle + (Math.random() > 0.5 ? Math.PI/2 : -Math.PI/2);
+        ai.targetX = state.opponent.x + Math.cos(tangentAngle) * fleeDist;
+        ai.targetZ = state.opponent.z + Math.sin(tangentAngle) * fleeDist;
     }
 
-    // Move toward target (hider is slower)
-    moveAIToward(ai.targetX, ai.targetZ, CONFIG.HIDER_SPEED, deltaTime);
+    // Move toward target - noticeably slower than seeker so player can catch up
+    moveAIToward(ai.targetX, ai.targetZ, CONFIG.HIDER_SPEED * 0.75, deltaTime);
 }
 
 function canAISeePoint(px, pz) {
@@ -5237,7 +9318,10 @@ function updateScene() {
     if (playerMesh) {
         playerMesh.position.set(state.player.x, 0, state.player.z);
         // Rotate to face walking direction (model faces +Z by default)
-        playerMesh.rotation.y = -state.player.angle + Math.PI / 2;
+        // Apply skin-specific rotation offset if defined
+        const selectedSkin = StoreManager.getSelectedSkin();
+        const rotationOffset = selectedSkin?.rotationOffset || 0;
+        playerMesh.rotation.y = -state.player.angle + Math.PI / 2 + rotationOffset;
 
         // Play/pause walking animation based on movement
         if (playerMesh.userData.walkAction) {
@@ -5294,8 +9378,11 @@ function updateScene() {
     }
 
     // Update camera to follow player
-    const cameraHeight = 45;
-    const cameraDistance = 25;
+    // Check for board-specific camera zoom
+    const board = BOARDS[state.boardIndex] || BOARDS[0];
+    const zoom = board.cameraZoom || 1;
+    const cameraHeight = 45 * zoom;
+    const cameraDistance = 25 * zoom;
 
     // Add screen shake
     let shakeX = 0, shakeZ = 0;
@@ -5314,9 +9401,20 @@ function updateScene() {
 
     // Update theme-specific effects (particles, lights, etc.)
     updateThemeEffects();
+    updateDoors();
+    updatePortals(0.016); // ~60fps delta time
+    updatePortalTransition(0.016); // Update portal transition effect
 
     // Update environmental effects
     updateDustParticles();
+
+    // Spawn dust when player moves near objects
+    if (isMoving) {
+        const playerSpeed = state.player.boosting ? CONFIG.BOOST_SPEED :
+            (state.role === 'seeker' ? CONFIG.SEEKER_SPEED : CONFIG.HIDER_SPEED);
+        spawnDustNearObjects(state.player.x, state.player.z, playerSpeed);
+    }
+
     updateCharacterGlows();
 
     // Update vision cone for seeker
@@ -5483,6 +9581,7 @@ function init() {
         state.isSoloMode = false;
         state.gameStarted = false;
         state.gameOver = false;
+        cleanupPortalTransition();
         showScreen('menu');
     });
 
@@ -5491,6 +9590,7 @@ function init() {
         state.isSoloMode = false;
         state.gameStarted = false;
         state.gameOver = false;
+        cleanupPortalTransition();
         showScreen('menu');
     });
 
@@ -5511,82 +9611,140 @@ function init() {
 // Character Preview on Homepage
 // ==========================================
 
-let previewScene, previewCamera, previewRenderer, previewMixer, previewCharacter;
+let homePreviewScene, homePreviewCamera, homePreviewRenderer, homePreviewMixer, homePreviewCharacter;
 
 function initCharacterPreview() {
     const container = document.getElementById('character-preview');
     if (!container) return;
 
     // Create scene
-    previewScene = new THREE.Scene();
-    previewScene.background = null; // Transparent background
+    homePreviewScene = new THREE.Scene();
+    homePreviewScene.background = null; // Transparent background
 
     // Camera
-    previewCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-    previewCamera.position.set(0, 3, 6);
-    previewCamera.lookAt(0, 1.5, 0);
+    homePreviewCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+    homePreviewCamera.position.set(0, 3, 6);
+    homePreviewCamera.lookAt(0, 1.5, 0);
 
     // Renderer
-    previewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    previewRenderer.setSize(200, 200);
-    previewRenderer.setPixelRatio(window.devicePixelRatio);
-    container.appendChild(previewRenderer.domElement);
+    homePreviewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    homePreviewRenderer.setSize(200, 200);
+    homePreviewRenderer.setPixelRatio(window.devicePixelRatio);
+    container.appendChild(homePreviewRenderer.domElement);
 
     // Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
-    previewScene.add(ambientLight);
+    homePreviewScene.add(ambientLight);
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
     directionalLight.position.set(5, 10, 5);
-    previewScene.add(directionalLight);
+    homePreviewScene.add(directionalLight);
 
-    // Load character
+    // Load character based on selected skin
+    const selectedSkin = StoreManager.getSelectedSkin();
     const loader = new THREE.GLTFLoader();
-    loader.load('images/Characters/Meshy_AI_biped/Meshy_AI_Animation_Walking_withSkin.glb',
+    if (typeof dracoLoader !== 'undefined') {
+        loader.setDRACOLoader(dracoLoader);
+    }
+
+    // Use skin's scale for preview (scaled down for home preview)
+    const previewScale = (selectedSkin.scale || 6) / 3;
+
+    loader.load(selectedSkin.path,
         (gltf) => {
-            previewCharacter = gltf.scene;
-            previewCharacter.scale.set(2, 2, 2);
-            previewCharacter.position.set(0, 0, 0);
+            homePreviewCharacter = gltf.scene;
+            homePreviewCharacter.scale.set(previewScale, previewScale, previewScale);
+            homePreviewCharacter.position.set(0, 0, 0);
 
-            // Apply gold tint
-            previewCharacter.traverse((child) => {
-                if (child.isMesh && child.material) {
-                    child.material = child.material.clone();
-                    child.material.color.setHex(0xe5c644);
-                }
-            });
-
-            previewScene.add(previewCharacter);
+            homePreviewScene.add(homePreviewCharacter);
 
             // Setup animation
             if (gltf.animations && gltf.animations.length > 0) {
-                previewMixer = new THREE.AnimationMixer(previewCharacter);
-                const action = previewMixer.clipAction(gltf.animations[0]);
+                homePreviewMixer = new THREE.AnimationMixer(homePreviewCharacter);
+                const action = homePreviewMixer.clipAction(gltf.animations[0]);
                 action.setLoop(THREE.LoopRepeat, Infinity);
-                action.timeScale = 1.5; // Speed up animation
+                // Slow down all animations on home page (40% slower)
+                action.timeScale = selectedSkin.id === 'firefighter' ? 0.72 : 0.9;
                 action.play();
             }
 
-            animatePreview();
+            animateHomePreview();
         }
     );
 }
 
-function animatePreview() {
-    requestAnimationFrame(animatePreview);
+function animateHomePreview() {
+    requestAnimationFrame(animateHomePreview);
 
-    if (previewMixer) {
-        previewMixer.update(0.016);
+    if (homePreviewMixer) {
+        homePreviewMixer.update(0.016);
     }
 
     // Slowly rotate character
-    if (previewCharacter) {
-        previewCharacter.rotation.y += 0.01;
+    if (homePreviewCharacter) {
+        homePreviewCharacter.rotation.y += 0.01;
     }
 
-    if (previewRenderer && previewScene && previewCamera) {
-        previewRenderer.render(previewScene, previewCamera);
+    if (homePreviewRenderer && homePreviewScene && homePreviewCamera) {
+        homePreviewRenderer.render(homePreviewScene, homePreviewCamera);
     }
+}
+
+function refreshHomePreview() {
+    // Make sure scene is initialized
+    if (!homePreviewScene) {
+        console.log('Home preview scene not ready, initializing...');
+        initCharacterPreview();
+        return;
+    }
+
+    // Remove ALL non-light objects from scene (comprehensive cleanup)
+    const toRemove = [];
+    homePreviewScene.children.forEach((child) => {
+        if (child.type !== 'AmbientLight' && child.type !== 'DirectionalLight') {
+            toRemove.push(child);
+        }
+    });
+    toRemove.forEach(obj => homePreviewScene.remove(obj));
+    homePreviewCharacter = null;
+    homePreviewMixer = null;
+
+    // Load the currently selected skin
+    const selectedSkin = StoreManager.getSelectedSkin();
+    console.log('Refreshing home preview with skin:', selectedSkin.name, selectedSkin.path);
+
+    const loader = new THREE.GLTFLoader();
+    if (typeof dracoLoader !== 'undefined') {
+        loader.setDRACOLoader(dracoLoader);
+    }
+
+    // Use skin's scale for preview (scaled down for home preview)
+    const previewScale = (selectedSkin.scale || 6) / 3; // Divide by 3 for home preview size
+
+    loader.load(selectedSkin.path,
+        (gltf) => {
+            homePreviewCharacter = gltf.scene;
+            homePreviewCharacter.scale.set(previewScale, previewScale, previewScale);
+            homePreviewCharacter.position.set(0, 0, 0);
+
+            homePreviewScene.add(homePreviewCharacter);
+
+            // Setup animation
+            if (gltf.animations && gltf.animations.length > 0) {
+                homePreviewMixer = new THREE.AnimationMixer(homePreviewCharacter);
+                const action = homePreviewMixer.clipAction(gltf.animations[0]);
+                action.setLoop(THREE.LoopRepeat, Infinity);
+                // Slow down all animations on home page (40% slower)
+                action.timeScale = selectedSkin.id === 'firefighter' ? 0.72 : 0.9;
+                action.play();
+            }
+            console.log('Home preview updated to:', selectedSkin.name);
+        },
+        null,
+        (error) => {
+            console.error('Failed to load home preview skin:', error);
+        }
+    );
 }
 
 // Initialize preview when page loads
