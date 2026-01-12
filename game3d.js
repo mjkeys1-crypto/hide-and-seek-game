@@ -9623,15 +9623,7 @@ function updateScene() {
 
         opponentMesh.position.set(state.opponent.x, 0, state.opponent.z);
         // Rotate to face walking direction
-        // Apply skin-specific rotation offset if stored on the mesh (default to Math.PI for standard models)
-        const opponentRotationOffset = opponentMesh.userData.rotationOffset !== undefined
-            ? opponentMesh.userData.rotationOffset
-            : Math.PI;
-        if (!window._loggedOpponentOffset) {
-            console.log('Opponent rotationOffset:', opponentRotationOffset, 'userData:', opponentMesh.userData.rotationOffset);
-            window._loggedOpponentOffset = true;
-        }
-        opponentMesh.rotation.y = state.opponent.angle + opponentRotationOffset;
+        opponentMesh.rotation.y = state.opponent.angle;
 
         // Play/pause walking animation for opponent
         if (opponentMesh.userData.walkAction) {
