@@ -3734,6 +3734,14 @@ function loadSeekerModel(usePlayerSkin = false, aiSkin = null) {
                 }
             });
 
+            // Store rotation offset for this skin on the model
+            if (skinToUse) {
+                seekerModel.userData.rotationOffset = skinToUse.rotationOffset || 0;
+            } else {
+                // Default seeker skin needs rotation offset
+                seekerModel.userData.rotationOffset = Math.PI;
+            }
+
             if (gltf.animations && gltf.animations.length > 0) {
                 seekerAnimations = gltf.animations;
                 console.log('Seeker animations found:', gltf.animations.length, gltf.animations.map(a => a.name));
@@ -3842,6 +3850,14 @@ function loadHiderModel(usePlayerSkin = false, aiSkin = null) {
                     child.receiveShadow = true;
                 }
             });
+
+            // Store rotation offset for this skin on the model
+            if (skinToUse) {
+                hiderModel.userData.rotationOffset = skinToUse.rotationOffset || 0;
+            } else {
+                // Default hider skin needs rotation offset
+                hiderModel.userData.rotationOffset = Math.PI;
+            }
 
             if (gltf.animations && gltf.animations.length > 0) {
                 hiderAnimations = gltf.animations;
@@ -7356,8 +7372,10 @@ function createPlayers() {
     // Create opponent mesh
     if (oppModel) {
         opponentMesh = THREE.SkeletonUtils.clone(oppModel);
-        // Copy rotation offset from source model
-        opponentMesh.userData.rotationOffset = oppModel.userData?.rotationOffset || 0;
+        // Copy rotation offset from source model, default to Math.PI for default skins
+        opponentMesh.userData.rotationOffset = oppModel.userData?.rotationOffset !== undefined
+            ? oppModel.userData.rotationOffset
+            : Math.PI;
         // Tint opponent based on their role (opposite of player)
         const opponentColor = playerIsSeeker ? 0x4dd0e1 : 0xe5c644;
         opponentMesh.traverse((child) => {
@@ -9605,8 +9623,14 @@ function updateScene() {
 
         opponentMesh.position.set(state.opponent.x, 0, state.opponent.z);
         // Rotate to face walking direction
-        // Apply skin-specific rotation offset if stored on the mesh
-        const opponentRotationOffset = opponentMesh.userData.rotationOffset || 0;
+        // Apply skin-specific rotation offset if stored on the mesh (default to Math.PI for standard models)
+        const opponentRotationOffset = opponentMesh.userData.rotationOffset !== undefined
+            ? opponentMesh.userData.rotationOffset
+            : Math.PI;
+        if (!window._loggedOpponentOffset) {
+            console.log('Opponent rotationOffset:', opponentRotationOffset, 'userData:', opponentMesh.userData.rotationOffset);
+            window._loggedOpponentOffset = true;
+        }
         opponentMesh.rotation.y = state.opponent.angle + opponentRotationOffset;
 
         // Play/pause walking animation for opponent
