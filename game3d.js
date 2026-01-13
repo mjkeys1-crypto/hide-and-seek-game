@@ -4850,8 +4850,14 @@ function spawnCoins() {
     // Clear existing coins
     clearCollectibles();
 
+    // Random coin count: 3-8 regular coins (so total with multipliers stays <= 10)
+    const regularCoinCount = Math.floor(Math.random() * 6) + 3; // 3-8
+    // Random multiplier count: 0-2 (max 10 total)
+    const maxMultipliers = Math.min(2, 10 - regularCoinCount);
+    const multiplierCount = Math.floor(Math.random() * (maxMultipliers + 1)); // 0 to maxMultipliers
+
     // Spawn regular coins - use risky positions to encourage hider movement
-    for (let i = 0; i < CONFIG.COIN_COUNT; i++) {
+    for (let i = 0; i < regularCoinCount; i++) {
         // Most coins spawn in risky/exposed areas
         const pos = getRiskySpawnPosition();
         const coinMesh = createCoinMesh();
@@ -4869,7 +4875,7 @@ function spawnCoins() {
     }
 
     // Spawn coin multipliers (3x coins) in risky center areas
-    for (let i = 0; i < CONFIG.MULTIPLIER_COUNT; i++) {
+    for (let i = 0; i < multiplierCount; i++) {
         const pos = getRiskySpawnPosition();
         const multiplierMesh = createMultiplierMesh();
         multiplierMesh.position.set(pos.x, 1.5, pos.z);
@@ -9840,7 +9846,6 @@ function initMobileControls() {
 
     let touchActive = false;
     let startX = 0, startY = 0;
-
     joystickZone.addEventListener('touchstart', (e) => {
         e.preventDefault();
         const touch = e.touches[0];
