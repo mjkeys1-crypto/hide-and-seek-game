@@ -1865,7 +1865,7 @@ const CONFIG = {
     BOOST_DURATION: 1500,
     BOOST_COOLDOWN: 5000,
     SEEKER_VIEW_RANGE: 28,
-    SEEKER_VIEW_ANGLE: Math.PI / 6,  // 30 degrees each side (60 degree total cone) - matches visual cone
+    SEEKER_VIEW_ANGLE: Math.PI / 4.5,  // ~40 degrees each side (~80 degree total cone) - tighter to match visual
     GAME_DURATION: 90,
     CATCH_DISTANCE: 5,
     WALL_HEIGHT: 4,
@@ -3380,6 +3380,73 @@ function clearModelColliders() {
     modelColliders = [];
 }
 
+// Ambient floating 3D ghosts
+let ambientGhosts = [];
+
+function loadAmbientGhosts() {
+    const loader = new THREE.GLTFLoader();
+    loader.setDRACOLoader(dracoLoader);
+
+    // Ghost spawn positions - inside the haunted maze corridors
+    const ghostPositions = [
+        { x: 0, z: 0 },      // Center of maze
+        { x: 10, z: -10 }    // Inner corridor
+    ];
+
+    loader.load('images/maze elements/haunted/ghost.glb', (gltf) => {
+        // Only add ghosts if still on haunted theme
+        if (currentBoard?.theme !== 'haunted') {
+            console.log('Skipping ghost spawn - no longer on haunted board');
+            return;
+        }
+
+        ghostPositions.forEach((pos, index) => {
+            const ghost = gltf.scene.clone();
+
+            // Scale slightly larger than characters for visibility
+            ghost.scale.set(8, 8, 8);
+
+            // Position floating in the air
+            ghost.position.set(pos.x, 3 + Math.random() * 2, pos.z);
+
+            // Make semi-transparent
+            ghost.traverse((child) => {
+                if (child.isMesh && child.material) {
+                    child.material = child.material.clone();
+                    child.material.transparent = true;
+                    child.material.opacity = 0.6;
+                }
+            });
+
+            // Floating animation properties
+            ghost.userData.isGhost = true;
+            ghost.userData.floatSpeed = 0.8 + Math.random() * 0.4;
+            ghost.userData.floatOffset = Math.random() * Math.PI * 2;
+            ghost.userData.driftAngle = Math.random() * Math.PI * 2;
+            ghost.userData.baseY = ghost.position.y;
+            ghost.userData.baseX = ghost.position.x;
+            ghost.userData.baseZ = ghost.position.z;
+
+            scene.add(ghost);
+            ambientGhosts.push(ghost);
+            themeParticles.push(ghost);
+
+            console.log('Loaded ambient ghost', index + 1, 'at', pos.x.toFixed(1), pos.z.toFixed(1));
+        });
+    }, undefined, (error) => {
+        console.warn('Could not load ghost model:', error);
+    });
+}
+
+function clearAmbientGhosts() {
+    ambientGhosts.forEach(ghost => {
+        scene.remove(ghost);
+        const idx = themeParticles.indexOf(ghost);
+        if (idx > -1) themeParticles.splice(idx, 1);
+    });
+    ambientGhosts = [];
+}
+
 let currentBoardIndex = 0;
 let currentBoard = BOARDS[0];
 
@@ -3557,9 +3624,8 @@ function setupVisionCone() {
     visionConeTarget = null;
 
     // Create visible cone mesh for visual feedback
-    // Use fixed dimensions that look good visually and stay consistent across all boards
-    const coneLength = CONFIG.SEEKER_VIEW_RANGE;
-    const coneRadius = 12; // Fixed radius for consistent visual appearance
+    const coneLength = 120; // Short cone
+    const coneRadius = 35; // Narrow cone
     const coneGeometry = new THREE.ConeGeometry(coneRadius, coneLength, 32, 1, true);
 
     // Transform geometry so apex is at origin, cone extends along -X axis
@@ -3675,24 +3741,21 @@ function deactivateVisionCone() {
 function updateVisionCone() {
     if (!isVisionConeActive || !visionConeMesh) return;
 
-    // Use playerMesh position if available, fallback to state.player
-    // This ensures vision cone always follows the visible character
-    const playerX = playerMesh ? playerMesh.position.x : state.player.x;
-    const playerZ = playerMesh ? playerMesh.position.z : state.player.z;
-    const playerAngle = state.player.angle;
+    // Use playerMesh position and rotation directly - this ensures cone matches character
+    if (!playerMesh) return;
 
-    // Position cone mesh at player's face (apex is at origin due to geometry translation)
-    // Add small offset in facing direction to place apex at front of character
-    const faceOffset = 1.5;
-    const faceX = playerX + Math.sin(playerAngle) * faceOffset;
-    const faceZ = playerZ + Math.cos(playerAngle) * faceOffset;
-    visionConeMesh.position.set(faceX, 2, faceZ);
+    const playerX = playerMesh.position.x;
+    const playerZ = playerMesh.position.z;
 
-    // Rotate cone to point in facing direction (match character mesh rotation pattern)
-    // Add rotationOffset for skin-specific correction, and +PI/2 to compensate for cone geometry pointing -X
-    const selectedSkin = StoreManager.getSelectedSkin();
-    const rotationOffset = selectedSkin?.rotationOffset || 0;
-    visionConeMesh.rotation.set(0, playerAngle + rotationOffset + Math.PI / 2, 0);
+    // Get the actual rotation of the player mesh (this is where the character is facing)
+    const meshRotation = playerMesh.rotation.y;
+
+    // Position cone at player
+    visionConeMesh.position.set(playerX, 2, playerZ);
+
+    // Cone geometry points along +X after rotateZ(-PI/2)
+    // Add PI/2 to align with mesh facing direction
+    visionConeMesh.rotation.set(0, meshRotation + Math.PI / 2, 0);
 
     // Update glow ring position at player feet
     if (visionConeMesh.userData.glowRing) {
@@ -4108,6 +4171,7 @@ function createArena() {
     themeLights.forEach(l => scene.remove(l));
     themeLights = [];
     clearModelColliders();
+    clearAmbientGhosts();
     clearDoors();
     clearPortals();
 
@@ -5534,6 +5598,9 @@ function createHauntedEffects() {
     createBarrel(-10, 25, 1.2, 2.5, 0x2d1f1a);
     createBarrel(15, 20, 1, 2, 0x1a1a1a);
     createBarrel(-18, -20, 1.1, 2.3, 0x2d1f1a);
+
+    // ========== 3D FLOATING GHOST MODELS ==========
+    loadAmbientGhosts();
 }
 
 // Neon theme - grid lines and electric particles
@@ -6965,22 +7032,24 @@ function updateThemeEffects() {
                 // Floating ghosts
                 if (particle.userData.isGhost) {
                     // Bobbing up and down
-                    particle.position.y = 4 + Math.sin(time * particle.userData.floatSpeed + particle.userData.floatOffset) * 1.5;
-                    // Slow drift movement
-                    particle.position.x += Math.cos(particle.userData.driftAngle) * 0.01;
-                    particle.position.z += Math.sin(particle.userData.driftAngle) * 0.01;
+                    const baseY = particle.userData.baseY || 4;
+                    particle.position.y = baseY + Math.sin(time * particle.userData.floatSpeed + particle.userData.floatOffset) * 1.5;
+                    // Faster drift movement throughout the maze
+                    particle.position.x += Math.cos(particle.userData.driftAngle) * 0.05;
+                    particle.position.z += Math.sin(particle.userData.driftAngle) * 0.05;
+                    // Gradually change drift direction for wandering effect
+                    particle.userData.driftAngle += Math.sin(time * 0.5 + particle.userData.floatOffset) * 0.02;
                     // Slowly rotate to face different directions
                     particle.rotation.y = Math.sin(time * 0.3 + particle.userData.floatOffset) * Math.PI * 0.5;
-                    // Pulsing opacity for eerie effect
-                    particle.children.forEach(child => {
-                        if (child.material && child.material.opacity !== undefined) {
-                            const baseOpacity = child.material.color.getHex() === 0x000000 ? 1 : 0.4;
+                    // Pulsing opacity for eerie effect (works for both simple and 3D model ghosts)
+                    particle.traverse(child => {
+                        if (child.isMesh && child.material && child.material.opacity !== undefined) {
+                            const baseOpacity = child.material.color?.getHex() === 0x000000 ? 1 : 0.6;
                             child.material.opacity = baseOpacity + Math.sin(time * 2) * 0.15;
                         }
                     });
-                    // Keep within bounds
-                    const dist = Math.sqrt(particle.position.x ** 2 + particle.position.z ** 2);
-                    if (dist > CONFIG.ARENA_RADIUS * 0.8) {
+                    // Keep within haunted maze bounds (-25 to 25)
+                    if (Math.abs(particle.position.x) > 25 || Math.abs(particle.position.z) > 25) {
                         particle.userData.driftAngle += Math.PI;
                     }
                 }
@@ -7326,6 +7395,10 @@ function createPlayers() {
     // Create player mesh
     if (myModel) {
         playerMesh = THREE.SkeletonUtils.clone(myModel);
+        // Copy rotation offset from source model (important for correct facing direction)
+        playerMesh.userData.rotationOffset = myModel.userData?.rotationOffset !== undefined
+            ? myModel.userData.rotationOffset
+            : Math.PI;
         // Tint player based on role (gold for seeker, cyan for hider)
         const playerColor = playerIsSeeker ? 0xe5c644 : 0x4dd0e1;
         playerMesh.traverse((child) => {
@@ -7800,7 +7873,10 @@ function startGame() {
         state.opponent.x = spawns.seeker.x;
         state.opponent.z = spawns.seeker.z;
     }
-    state.player.angle = Math.atan2(state.opponent.z - state.player.z, state.opponent.x - state.player.x);
+    // Initial angle facing opponent - negate to match movement code convention
+    const dx = state.opponent.x - state.player.x;
+    const dz = state.opponent.z - state.player.z;
+    state.player.angle = Math.atan2(-dx, -dz);
 
     // Setup UI
     elements.roleDisplay.textContent = state.role.toUpperCase();
@@ -8520,7 +8596,8 @@ function updatePlayer(deltaTime) {
     }
 
     if (dx !== 0 || dz !== 0) {
-        state.player.angle = Math.atan2(dx, dz);
+        // Negate to match Three.js convention: -Z is forward, angle=0 should face forward
+        state.player.angle = Math.atan2(-dx, -dz);
     }
 
     let baseSpeed = state.role === 'seeker' ? CONFIG.SEEKER_SPEED : CONFIG.HIDER_SPEED;
@@ -8723,14 +8800,21 @@ function activateBoost() {
 // ==========================================
 
 function isPointVisible(px, pz) {
+    if (!playerMesh) return false;
+
     const dx = px - state.player.x;
     const dz = pz - state.player.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
 
     if (dist > CONFIG.SEEKER_VIEW_RANGE) return false;
 
-    const angleToPoint = Math.atan2(dx, dz);  // Match player angle coordinate system
-    let angleDiff = angleToPoint - state.player.angle;
+    // Get angle to the point
+    const angleToPoint = Math.atan2(dx, dz);
+
+    // Use mesh rotation directly (PI/2 is only for visual cone geometry, not angle check)
+    const facingAngle = playerMesh.rotation.y;
+
+    let angleDiff = angleToPoint - facingAngle;
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
     while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
 
@@ -9350,8 +9434,8 @@ function moveAIToward(targetX, targetZ, speed, deltaTime) {
     const dirX = dx / dist;
     const dirZ = dz / dist;
 
-    // Update angle to face movement direction
-    state.opponent.angle = Math.atan2(dirX, dirZ);
+    // Update angle to face movement direction - negate to match convention
+    state.opponent.angle = Math.atan2(-dirX, -dirZ);
 
     // Move
     let newX = state.opponent.x + dirX * speed;
@@ -9576,11 +9660,9 @@ function updateScene() {
     // Update player mesh with walking animation
     if (playerMesh) {
         playerMesh.position.set(state.player.x, 0, state.player.z);
-        // Rotate to face walking direction
-        // Apply skin-specific rotation offset if defined (for models that face backwards)
-        const selectedSkin = StoreManager.getSelectedSkin();
-        const rotationOffset = selectedSkin?.rotationOffset || 0;
-        playerMesh.rotation.y = state.player.angle + rotationOffset;
+        // Rotate to face walking direction using skin-specific rotationOffset
+        const playerRotationOffset = playerMesh.userData.rotationOffset || 0;
+        playerMesh.rotation.y = state.player.angle + playerRotationOffset;
 
         // Play/pause walking animation based on movement
         if (playerMesh.userData.walkAction) {
@@ -9622,8 +9704,8 @@ function updateScene() {
         opponentMesh.visible = visible;
 
         opponentMesh.position.set(state.opponent.x, 0, state.opponent.z);
-        // Rotate to face walking direction
-        opponentMesh.rotation.y = state.opponent.angle;
+        // Rotate to face walking direction - add PI to flip 180 degrees
+        opponentMesh.rotation.y = state.opponent.angle + Math.PI;
 
         // Play/pause walking animation for opponent
         if (opponentMesh.userData.walkAction) {
