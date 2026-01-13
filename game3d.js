@@ -1838,6 +1838,141 @@ const SoundManager = {
     }
 };
 
+// ==========================================
+// Music Manager - Background music per board
+// ==========================================
+const MusicManager = {
+    currentTrack: null,
+    nextTrack: null,
+    volume: 0.3,
+    enabled: true,
+    isPlaying: false,
+    crossfadeDuration: 2000, // 2 second crossfade
+
+    // Set volume (0-1)
+    setVolume(vol) {
+        this.volume = Math.max(0, Math.min(1, vol)) * 0.6; // Music slightly quieter than SFX
+        if (this.currentTrack) {
+            this.currentTrack.volume = this.volume;
+        }
+    },
+
+    // Play music for a board
+    play(musicPath) {
+        if (!this.enabled || !musicPath) return;
+
+        // If same track is already playing, do nothing
+        if (this.currentTrack && this.currentTrack.src.includes(musicPath) && this.isPlaying) {
+            return;
+        }
+
+        // Create new audio element
+        const newTrack = new Audio(musicPath);
+        newTrack.loop = true;
+        newTrack.volume = 0;
+
+        // Handle loading errors gracefully
+        newTrack.onerror = () => {
+            console.warn('Music file not found:', musicPath);
+        };
+
+        newTrack.oncanplaythrough = () => {
+            // Crossfade from old track to new track
+            if (this.currentTrack && this.isPlaying) {
+                this.crossfade(this.currentTrack, newTrack);
+            } else {
+                // No current track, just fade in
+                newTrack.play().catch(() => {});
+                this.fadeIn(newTrack);
+            }
+            this.currentTrack = newTrack;
+            this.isPlaying = true;
+        };
+
+        newTrack.load();
+    },
+
+    // Crossfade between two tracks
+    crossfade(oldTrack, newTrack) {
+        const steps = 20;
+        const stepTime = this.crossfadeDuration / steps;
+        let step = 0;
+
+        newTrack.play().catch(() => {});
+
+        const fadeInterval = setInterval(() => {
+            step++;
+            const progress = step / steps;
+
+            // Fade out old track
+            oldTrack.volume = this.volume * (1 - progress);
+
+            // Fade in new track
+            newTrack.volume = this.volume * progress;
+
+            if (step >= steps) {
+                clearInterval(fadeInterval);
+                oldTrack.pause();
+                oldTrack.src = '';
+            }
+        }, stepTime);
+    },
+
+    // Fade in a track
+    fadeIn(track) {
+        const steps = 10;
+        const stepTime = 100;
+        let step = 0;
+
+        const fadeInterval = setInterval(() => {
+            step++;
+            track.volume = this.volume * (step / steps);
+
+            if (step >= steps) {
+                clearInterval(fadeInterval);
+            }
+        }, stepTime);
+    },
+
+    // Stop music with fade out
+    stop() {
+        if (!this.currentTrack) return;
+
+        const track = this.currentTrack;
+        const steps = 10;
+        const stepTime = 100;
+        let step = 0;
+
+        const fadeInterval = setInterval(() => {
+            step++;
+            track.volume = this.volume * (1 - step / steps);
+
+            if (step >= steps) {
+                clearInterval(fadeInterval);
+                track.pause();
+                track.src = '';
+                this.isPlaying = false;
+            }
+        }, stepTime);
+
+        this.currentTrack = null;
+    },
+
+    // Pause music
+    pause() {
+        if (this.currentTrack && this.isPlaying) {
+            this.currentTrack.pause();
+        }
+    },
+
+    // Resume music
+    resume() {
+        if (this.currentTrack && this.isPlaying) {
+            this.currentTrack.play().catch(() => {});
+        }
+    }
+};
+
 // Initialize sound on first user interaction
 document.addEventListener('click', () => {
     if (!SoundManager.audioContext) {
@@ -1887,6 +2022,7 @@ const CONFIG = {
 const BOARDS = [
     {
         name: "The Garden",
+        music: "audio/music/garden-peaceful.mp3",
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x3d5c3d, wall: 0x8b4513, wallHighlight: 0x228b22, sky: 0x87CEEB },
         theme: 'garden',
@@ -1922,6 +2058,7 @@ const BOARDS = [
     },
     {
         name: "The Haunted Maze",
+        music: "audio/music/haunted-spooky.mp3",
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x1a1a2e, wall: 0x4a4a6a, sky: 0x0a0a1a },
         theme: 'haunted',
@@ -1959,6 +2096,7 @@ const BOARDS = [
     },
     {
         name: "Neon Grid",
+        music: "audio/music/neon-synthwave.mp3",
         spawns: { seeker: { x: -20, z: -20 }, hider: { x: 20, z: 20 } },
         style: { floor: 0x0a0a15, wall: 0x00ffff, wallGlow: 0x00ffff, sky: 0x050510 },
         theme: 'neon',
@@ -1992,6 +2130,7 @@ const BOARDS = [
     },
     {
         name: "The Fortress",
+        music: "audio/music/fortress-epic.mp3",
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x3d3d3d, wall: 0x8b7355, wallHighlight: 0xc9a959, sky: 0x2a1a0a },
         theme: 'medieval',
@@ -2026,6 +2165,7 @@ const BOARDS = [
     },
     {
         name: "The Spiral",
+        music: "audio/music/spiral-electronic.mp3",
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x1a0a2e, wall: 0xff00ff, wallGlow: 0xff00ff, sky: 0x0f0520 },
         theme: 'psychedelic',
@@ -2059,6 +2199,7 @@ const BOARDS = [
     },
     {
         name: "The Bunker",
+        music: "audio/music/bunker-tense.mp3",
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x2a2a2a, wall: 0x4a4a4a, wallHighlight: 0x666666, sky: 0x1a1a1a },
         theme: 'bunker',
@@ -2094,6 +2235,7 @@ const BOARDS = [
     },
     {
         name: "The Ruins",
+        music: "audio/music/ruins-mysterious.mp3",
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x3d4a3d, wall: 0x6b8e6b, wallHighlight: 0x90ee90, sky: 0x4a6a4a },
         theme: 'ruins',
@@ -2138,6 +2280,7 @@ const BOARDS = [
     },
     {
         name: "The Arena",
+        music: "audio/music/arena-action.mp3",
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x2d5a2d, wall: 0xffffff, wallHighlight: 0xffff00, sky: 0x1a1a2e },
         theme: 'arena',
@@ -2171,6 +2314,7 @@ const BOARDS = [
     },
     {
         name: "The Void",
+        music: "audio/music/void-ambient.mp3",
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0x000000, wall: 0x4400ff, wallGlow: 0x8800ff, sky: 0x000011 },
         theme: 'void',
@@ -2216,6 +2360,7 @@ const BOARDS = [
     },
     {
         name: "The Streets",
+        music: "audio/music/streets-urban.mp3",
         spawns: { seeker: { x: -28, z: 0 }, hider: { x: 28, z: 0 } },
         style: { floor: 0x333333, wall: 0x8b4513, sky: 0x1a1a2e },
         theme: 'streets',
@@ -2260,6 +2405,7 @@ const BOARDS = [
     },
     {
         name: "The Park",
+        music: "audio/music/park-cheerful.mp3",
         spawns: { seeker: { x: -28, z: -28 }, hider: { x: 28, z: 28 } },
         style: { floor: 0x228b22, wall: 0x8b4513, sky: 0x87CEEB },
         theme: 'park',
@@ -2310,6 +2456,7 @@ const BOARDS = [
     },
     {
         name: "The Bathroom",
+        music: "audio/music/bathroom-quirky.mp3",
         spawns: { seeker: { x: -15, z: -28 }, hider: { x: 15, z: 28 } },
         style: { floor: 0xe8e8f0, wall: 0x87ceeb, sky: 0xe6f3ff },
         theme: 'bathroom',
@@ -2360,6 +2507,7 @@ const BOARDS = [
     },
     {
         name: "The Kitchen",
+        music: "audio/music/kitchen-playful.mp3",
         spawns: { seeker: { x: -25, z: -25 }, hider: { x: 25, z: 25 } },
         style: { floor: 0xdeb887, wall: 0xffffff, sky: 0xfff8dc },
         theme: 'kitchen',
@@ -2582,7 +2730,7 @@ function createPortals(board) {
         mesh: leftPortal,
         x: leftX,
         z: portalZ,
-        targetX: rightX - 30, // Spawn well inside from edge to avoid getting pushed back
+        targetX: rightX - 10, // Exit right next to portal
         targetZ: portalZ,
         side: 'left'
     });
@@ -2591,7 +2739,7 @@ function createPortals(board) {
         mesh: rightPortal,
         x: rightX,
         z: portalZ,
-        targetX: leftX + 30, // Spawn well inside from edge to avoid getting pushed back
+        targetX: leftX + 10, // Exit right next to portal
         targetZ: portalZ,
         side: 'right'
     });
@@ -7939,6 +8087,11 @@ function startGame() {
     currentBoard = BOARDS[currentBoardIndex];
     const spawns = currentBoard.spawns;
 
+    // Start board music
+    if (currentBoard.music) {
+        MusicManager.play(currentBoard.music);
+    }
+
     // Helper to get random spawn for opponent (away from player)
     function getRandomOpponentSpawn(playerX, playerZ) {
         const minDistFromPlayer = 150; // Minimum distance from player
@@ -9969,8 +10122,9 @@ function initMobileControls() {
 
     document.addEventListener('touchmove', (e) => {
         if (!touchActive) return;
+        e.preventDefault();
         updateJoystick(e.touches[0].clientX, e.touches[0].clientY);
-    });
+    }, { passive: false });
 
     document.addEventListener('touchend', () => {
         if (touchActive) {
@@ -10070,6 +10224,7 @@ function init() {
         state.gameStarted = false;
         state.gameOver = false;
         cleanupPortalTransition();
+        MusicManager.stop();
         showScreen('menu');
     });
 
@@ -10079,6 +10234,7 @@ function init() {
         state.gameStarted = false;
         state.gameOver = false;
         cleanupPortalTransition();
+        MusicManager.stop();
         showScreen('menu');
     });
 
@@ -10090,7 +10246,9 @@ function init() {
     const volumeSlider = document.getElementById('volume-slider');
     if (volumeSlider) {
         volumeSlider.addEventListener('input', (e) => {
-            SoundManager.setVolume(e.target.value / 100);
+            const vol = e.target.value / 100;
+            SoundManager.setVolume(vol);
+            MusicManager.setVolume(vol);
         });
     }
 }
