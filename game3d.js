@@ -4856,10 +4856,66 @@ function spawnCoins() {
     const maxMultipliers = Math.min(2, 10 - regularCoinCount);
     const multiplierCount = Math.floor(Math.random() * (maxMultipliers + 1)); // 0 to maxMultipliers
 
+    // Track placed coin positions to ensure spread
+    const placedPositions = [];
+    const minSpacing = 120; // Minimum distance between coins
+
+    // Helper to get a spread-out position across the WHOLE arena
+    function getSpreadOutPosition() {
+        let attempts = 0;
+        while (attempts < 150) {
+            // Use full arena (90% of radius) instead of just center
+            const angle = Math.random() * Math.PI * 2;
+            const maxRadius = CONFIG.ARENA_RADIUS * 0.85;
+            const minRadius = 30; // Don't spawn right at center
+            const radius = minRadius + Math.random() * (maxRadius - minRadius);
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+
+            // Check not inside a wall
+            let insideWall = false;
+            for (const wall of currentBoard.walls) {
+                if (x >= wall.x - 5 && x <= wall.x + wall.w + 5 &&
+                    z >= wall.z - 5 && z <= wall.z + wall.d + 5) {
+                    insideWall = true;
+                    break;
+                }
+            }
+            if (insideWall) {
+                attempts++;
+                continue;
+            }
+
+            // Check distance from all placed coins
+            let tooClose = false;
+            for (const placed of placedPositions) {
+                const dx = x - placed.x;
+                const dz = z - placed.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+                if (dist < minSpacing) {
+                    tooClose = true;
+                    break;
+                }
+            }
+
+            if (!tooClose) {
+                const pos = { x, z };
+                placedPositions.push(pos);
+                return pos;
+            }
+            attempts++;
+        }
+        // Fallback - find any valid position
+        const angle = Math.random() * Math.PI * 2;
+        const radius = CONFIG.ARENA_RADIUS * 0.5;
+        const pos = { x: Math.cos(angle) * radius, z: Math.sin(angle) * radius };
+        placedPositions.push(pos);
+        return pos;
+    }
+
     // Spawn regular coins - use risky positions to encourage hider movement
     for (let i = 0; i < regularCoinCount; i++) {
-        // Most coins spawn in risky/exposed areas
-        const pos = getRiskySpawnPosition();
+        const pos = getSpreadOutPosition();
         const coinMesh = createCoinMesh();
         coinMesh.position.set(pos.x, 1.5, pos.z);
         scene.add(coinMesh);
@@ -4876,7 +4932,7 @@ function spawnCoins() {
 
     // Spawn coin multipliers (3x coins) in risky center areas
     for (let i = 0; i < multiplierCount; i++) {
-        const pos = getRiskySpawnPosition();
+        const pos = getSpreadOutPosition();
         const multiplierMesh = createMultiplierMesh();
         multiplierMesh.position.set(pos.x, 1.5, pos.z);
         scene.add(multiplierMesh);
