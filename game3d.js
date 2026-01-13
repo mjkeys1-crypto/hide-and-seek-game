@@ -1857,7 +1857,7 @@ document.addEventListener('touchstart', () => {
 
 // Game Configuration
 const CONFIG = {
-    ARENA_RADIUS: 40,
+    ARENA_RADIUS: 46,  // 15% larger
     PLAYER_RADIUS: 1.5,
     HIDER_SPEED: 0.25,
     SEEKER_SPEED: 0.27,
