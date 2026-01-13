@@ -5817,8 +5817,15 @@ function createGardenEffects() {
 
     // ========== FLOWER PATCHES ==========
     const flowerPatches = [
-        { x: -15, z: -10 },
-        { x: 15, z: 10 },
+        // Spread flowers across the entire grassy area
+        { x: -15, z: -10 }, { x: 15, z: 10 }, { x: -20, z: 15 },
+        { x: 25, z: -15 }, { x: -25, z: 20 }, { x: 0, z: -25 },
+        { x: 30, z: 5 }, { x: -30, z: -5 }, { x: 10, z: 25 },
+        { x: -10, z: -30 }, { x: 20, z: -25 }, { x: -35, z: 10 },
+        { x: 35, z: -10 }, { x: 5, z: 35 }, { x: -5, z: -35 },
+        { x: -28, z: -20 }, { x: 28, z: 20 }, { x: 0, z: 30 },
+        { x: -18, z: 28 }, { x: 18, z: -28 }, { x: -33, z: -15 },
+        { x: 33, z: 15 }, { x: 12, z: -18 }, { x: -12, z: 18 },
     ];
 
     flowerPatches.forEach(pos => {
