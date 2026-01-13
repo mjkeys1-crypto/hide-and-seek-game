@@ -9821,8 +9821,8 @@ function updateScene() {
     // Check for board-specific camera zoom (zoomed out 15% for full board visibility)
     const board = BOARDS[state.boardIndex] || BOARDS[0];
     const zoom = board.cameraZoom || 1;
-    const cameraHeight = 52 * zoom;
-    const cameraDistance = 29 * zoom;
+    const cameraHeight = 26 * zoom;    // 50% zoomed in (was 52)
+    const cameraDistance = 15 * zoom;  // 50% closer (was 29)
 
     // Add screen shake
     let shakeX = 0, shakeZ = 0;
@@ -9832,13 +9832,13 @@ function updateScene() {
         state.screenShake *= 0.9;
     }
 
-    // Camera always centered on arena (0,0) for consistent view
+    // Camera follows player position
     camera.position.set(
-        0 + shakeX,
+        state.player.x + shakeX,
         cameraHeight,
-        0 + cameraDistance + shakeZ
+        state.player.z + cameraDistance + shakeZ
     );
-    camera.lookAt(0, 0, 0);
+    camera.lookAt(state.player.x, 0, state.player.z);
 
     // Update theme-specific effects (particles, lights, etc.)
     updateThemeEffects();
