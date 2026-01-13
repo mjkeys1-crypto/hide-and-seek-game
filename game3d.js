@@ -1866,7 +1866,7 @@ const CONFIG = {
     BOOST_COOLDOWN: 5000,
     SEEKER_VIEW_RANGE: 28,
     SEEKER_VIEW_ANGLE: Math.PI / 4.5,  // ~40 degrees each side (~80 degree total cone) - tighter to match visual
-    GAME_DURATION: 90,
+    GAME_DURATION: 75,
     CATCH_DISTANCE: 5,
     WALL_HEIGHT: 4,
     // Collectibles - more coins in risky spots to encourage hider movement
@@ -2582,7 +2582,7 @@ function createPortals(board) {
         mesh: leftPortal,
         x: leftX,
         z: portalZ,
-        targetX: rightX - 5, // Spawn slightly inside from edge
+        targetX: rightX - 30, // Spawn well inside from edge to avoid getting pushed back
         targetZ: portalZ,
         side: 'left'
     });
@@ -2591,7 +2591,7 @@ function createPortals(board) {
         mesh: rightPortal,
         x: rightX,
         z: portalZ,
-        targetX: leftX + 5, // Spawn slightly inside from edge
+        targetX: leftX + 30, // Spawn well inside from edge to avoid getting pushed back
         targetZ: portalZ,
         side: 'right'
     });
@@ -2601,8 +2601,8 @@ function createPortals(board) {
 function createPortalMesh(x, z, color, side) {
     const group = new THREE.Group();
 
-    // Portal ring (torus)
-    const ringGeometry = new THREE.TorusGeometry(4, 0.5, 16, 32);
+    // Portal ring (torus) - larger size
+    const ringGeometry = new THREE.TorusGeometry(8, 0.8, 16, 32);
     const ringMaterial = new THREE.MeshStandardMaterial({
         color: color,
         emissive: color,
@@ -2612,11 +2612,11 @@ function createPortalMesh(x, z, color, side) {
     });
     const ring = new THREE.Mesh(ringGeometry, ringMaterial);
     ring.rotation.y = Math.PI / 2; // Face sideways
-    ring.position.y = 4;
+    ring.position.y = 8;
     group.add(ring);
 
-    // Inner swirl effect (disc)
-    const swirlGeometry = new THREE.CircleGeometry(3.5, 32);
+    // Inner swirl effect (disc) - larger size
+    const swirlGeometry = new THREE.CircleGeometry(7, 32);
     const swirlMaterial = new THREE.MeshBasicMaterial({
         color: 0x000022,
         transparent: true,
@@ -2625,11 +2625,11 @@ function createPortalMesh(x, z, color, side) {
     });
     const swirl = new THREE.Mesh(swirlGeometry, swirlMaterial);
     swirl.rotation.y = Math.PI / 2;
-    swirl.position.y = 4;
+    swirl.position.y = 8;
     group.add(swirl);
 
-    // Particle glow effect
-    const glowGeometry = new THREE.CircleGeometry(5, 32);
+    // Particle glow effect - larger size
+    const glowGeometry = new THREE.CircleGeometry(10, 32);
     const glowMaterial = new THREE.MeshBasicMaterial({
         color: color,
         transparent: true,
@@ -2638,12 +2638,12 @@ function createPortalMesh(x, z, color, side) {
     });
     const glow = new THREE.Mesh(glowGeometry, glowMaterial);
     glow.rotation.y = Math.PI / 2;
-    glow.position.y = 4;
+    glow.position.y = 8;
     group.add(glow);
 
-    // Add point light
-    const light = new THREE.PointLight(color, 1.5, 20);
-    light.position.y = 4;
+    // Add point light - brighter for larger portal
+    const light = new THREE.PointLight(color, 2.0, 30);
+    light.position.y = 8;
     group.add(light);
 
     // Create particle system for constant light effects
@@ -4882,6 +4882,18 @@ function spawnCoins() {
                 }
             }
             if (insideWall) {
+                attempts++;
+                continue;
+            }
+
+            // Check not near portal entrances (keep clear zone)
+            const portalClearance = 50;
+            const leftPortalX = -(CONFIG.ARENA_RADIUS - 3);
+            const rightPortalX = CONFIG.ARENA_RADIUS - 3;
+            const portalZ = 0;
+            const distToLeftPortal = Math.sqrt((x - leftPortalX) ** 2 + (z - portalZ) ** 2);
+            const distToRightPortal = Math.sqrt((x - rightPortalX) ** 2 + (z - portalZ) ** 2);
+            if (distToLeftPortal < portalClearance || distToRightPortal < portalClearance) {
                 attempts++;
                 continue;
             }
@@ -7927,16 +7939,52 @@ function startGame() {
     currentBoard = BOARDS[currentBoardIndex];
     const spawns = currentBoard.spawns;
 
+    // Helper to get random spawn for opponent (away from player)
+    function getRandomOpponentSpawn(playerX, playerZ) {
+        const minDistFromPlayer = 150; // Minimum distance from player
+        let attempts = 0;
+        while (attempts < 100) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 100 + Math.random() * (CONFIG.ARENA_RADIUS * 0.7 - 100);
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+
+            // Check not inside a wall
+            let insideWall = false;
+            for (const wall of currentBoard.walls) {
+                if (x >= wall.x - 15 && x <= wall.x + wall.w + 15 &&
+                    z >= wall.z - 15 && z <= wall.z + wall.d + 15) {
+                    insideWall = true;
+                    break;
+                }
+            }
+
+            // Check distance from player
+            const dx = x - playerX;
+            const dz = z - playerZ;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+
+            if (!insideWall && dist > minDistFromPlayer) {
+                return { x, z };
+            }
+            attempts++;
+        }
+        // Fallback to opposite side of arena from player
+        return { x: -playerX * 0.8, z: -playerZ * 0.8 };
+    }
+
     if (state.role === 'seeker') {
         state.player.x = spawns.seeker.x;
         state.player.z = spawns.seeker.z;
-        state.opponent.x = spawns.hider.x;
-        state.opponent.z = spawns.hider.z;
+        const opponentSpawn = getRandomOpponentSpawn(spawns.seeker.x, spawns.seeker.z);
+        state.opponent.x = opponentSpawn.x;
+        state.opponent.z = opponentSpawn.z;
     } else {
         state.player.x = spawns.hider.x;
         state.player.z = spawns.hider.z;
-        state.opponent.x = spawns.seeker.x;
-        state.opponent.z = spawns.seeker.z;
+        const opponentSpawn = getRandomOpponentSpawn(spawns.hider.x, spawns.hider.z);
+        state.opponent.x = opponentSpawn.x;
+        state.opponent.z = opponentSpawn.z;
     }
     // Initial angle facing opponent - negate to match movement code convention
     const dx = state.opponent.x - state.player.x;
