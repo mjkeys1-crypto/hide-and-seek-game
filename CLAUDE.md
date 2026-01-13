@@ -13,6 +13,96 @@ Then open `http://localhost:3000` in browser.
 
 For mobile/second player on same network: `http://<your-ip>:3000`
 
+---
+
+## Known Issues & Development Notes
+
+### Character Rotation System (COMPLEX - Handle with Care)
+
+The rotation system involves multiple interconnected parts. Changes can easily break things.
+
+#### How It Works:
+1. **Angle Calculation**: `Math.atan2(-dx, -dz)` - Note the NEGATION of both parameters
+2. **Player Mesh Rotation**: `playerMesh.rotation.y = state.player.angle + rotationOffset`
+3. **Vision Cone Rotation**: `meshRotation + Math.PI/2` (compensates for cone geometry pointing +X)
+4. **Visibility Check**: Uses `playerMesh.rotation.y` directly
+
+#### Key Variables:
+- `state.player.angle` - Movement direction (radians)
+- `rotationOffset` - Per-skin correction (most skins use `Math.PI`, some use `0`)
+- `playerMesh.rotation.y` - Actual 3D mesh rotation
+
+#### SKINS rotationOffset:
+- **With `rotationOffset: Math.PI`**: default_seeker, default_hider, ghost, robot, firefighter, dark_warrior, cyber_girl, cyber_warrior
+- **Without rotationOffset (0)**: penguin, mushroom_man, cat
+
+#### What Breaks Easily:
+- Changing angle formula without updating ALL places that use it
+- Vision cone and visibility check getting out of sync
+- Forgetting to copy rotationOffset when cloning meshes
+
+### AI Hider Movement (PROBLEMATIC)
+
+The AI hider system has been extensively rewritten due to freezing/stuck issues.
+
+#### Current Implementation (game3d.js `updateHiderAI`):
+- **Direct position updates** - Does NOT use `moveAIToward()` function
+- **Simple wall push** - If inside wall, pushes to nearest edge (doesn't block)
+- **Always runs away** - Calculates direction away from seeker every frame
+- **Edge sliding** - At arena edge, slides along it
+
+#### Issues Encountered & Solutions Tried:
+
+| Issue | Cause | What Didn't Work | What Worked |
+|-------|-------|------------------|-------------|
+| AI spinning in circles | `moveAIToward` updating angle every frame even when blocked | Complex pathfinding, stuck detection | Only update angle when actually moved > 0.1 units |
+| AI frozen/not moving | `checkAIWallCollision` blocking all movement | Target-based movement, retarget timers | Bypass collision system entirely, direct position updates |
+| AI running toward seeker | Random angles included toward-seeker directions | Complex angle scoring | Always use `awayAngle = atan2(aiZ - playerZ, aiX - playerX)` |
+| AI glitching back/forth | Stuck detection triggering too often, changing direction every frame | 45-degree rotation every 5 frames | Remove stuck detection, just move directly |
+
+#### DO NOT:
+- Use `moveAIToward()` for hider - the wall collision blocks movement
+- Use complex pathfinding - it fails when all paths seem blocked
+- Add "stuck detection" that changes direction frequently - causes spinning
+- Use random angles - they can point toward the seeker
+
+#### DO:
+- Update position directly: `state.opponent.x = newX`
+- Use simple wall push (push out, don't block)
+- Always calculate direction away from seeker
+- Keep it simple - complex logic has failed repeatedly
+
+### Vision Cone System
+
+#### Components:
+1. **Visual Cone** (`visionConeMesh`) - What the player sees
+2. **Visibility Check** (`isPointVisible()`) - Determines if opponent is visible
+3. **CONFIG.SEEKER_VIEW_ANGLE** - Currently `Math.PI / 4.5` (~40 degrees each side)
+
+#### Cone Geometry:
+- Created as `ConeGeometry` pointing +Y
+- Rotated with `rotateZ(-Math.PI / 2)` to point +X
+- Mesh rotation: `meshRotation + Math.PI/2` to align with player facing
+
+#### Visibility Check Must Match Cone:
+```javascript
+// In isPointVisible():
+const facingAngle = playerMesh.rotation.y;  // Use mesh rotation directly
+const angleToPoint = Math.atan2(dx, dz);    // Standard atan2 (NOT negated)
+```
+
+### Wall Collision Functions
+
+| Function | Purpose | Notes |
+|----------|---------|-------|
+| `checkAIWallCollision(x, z)` | Check if AI position collides with walls | Returns push direction, can block movement |
+| `isWallBlockingPath(x1, z1, x2, z2)` | Check if path between two points is blocked | Samples 10 points along path |
+| `pushAIOutOfWalls()` | Emergency function to push AI out if stuck inside wall | Called after movement |
+
+**WARNING**: These functions can cause AI to freeze if they block all possible movements.
+
+---
+
 ## Game Overview
 
 ### Core Concept

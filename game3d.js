@@ -3741,21 +3741,17 @@ function deactivateVisionCone() {
 function updateVisionCone() {
     if (!isVisionConeActive || !visionConeMesh) return;
 
-    // Use playerMesh position and rotation directly - this ensures cone matches character
-    if (!playerMesh) return;
-
-    const playerX = playerMesh.position.x;
-    const playerZ = playerMesh.position.z;
-
-    // Get the actual rotation of the player mesh (this is where the character is facing)
-    const meshRotation = playerMesh.rotation.y;
+    // Use state.player directly - simplest approach
+    const playerX = state.player.x;
+    const playerZ = state.player.z;
+    const playerAngle = state.player.angle; // This is the LOGICAL facing direction
 
     // Position cone at player
     visionConeMesh.position.set(playerX, 2, playerZ);
 
-    // Cone geometry points along +X after rotateZ(-PI/2)
-    // Add PI/2 to align with mesh facing direction
-    visionConeMesh.rotation.set(0, meshRotation + Math.PI / 2, 0);
+    // Cone geometry points +X at rotation 0
+    // Subtract PI/2 to align with player facing direction
+    visionConeMesh.rotation.set(0, playerAngle - Math.PI / 2, 0);
 
     // Update glow ring position at player feet
     if (visionConeMesh.userData.glowRing) {
@@ -8800,19 +8796,18 @@ function activateBoost() {
 // ==========================================
 
 function isPointVisible(px, pz) {
-    if (!playerMesh) return false;
-
     const dx = px - state.player.x;
     const dz = pz - state.player.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
 
     if (dist > CONFIG.SEEKER_VIEW_RANGE) return false;
 
-    // Get angle to the point
-    const angleToPoint = Math.atan2(dx, dz);
+    // Use SAME angle convention as player movement: atan2(-dx, -dz)
+    // This way angle 0 = toward -Z, matching state.player.angle
+    const angleToPoint = Math.atan2(-dx, -dz);
 
-    // Use mesh rotation directly (PI/2 is only for visual cone geometry, not angle check)
-    const facingAngle = playerMesh.rotation.y;
+    // Compare directly to state.player.angle (the logical facing direction)
+    const facingAngle = state.player.angle;
 
     let angleDiff = angleToPoint - facingAngle;
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
@@ -9286,90 +9281,114 @@ function normalizeAngle(angle) {
 function updateHiderAI(deltaTime) {
     const ai = state.ai;
 
-    // Initialize hider AI state
-    if (!ai.hiderLastPosition) {
-        ai.hiderLastPosition = { x: state.opponent.x, z: state.opponent.z };
-        ai.hiderStuckTimer = 0;
-        ai.hiderUnstuckAngle = 0;
-        ai.hiderUnstuckTime = 0;
-        ai.pauseTimer = 0; // Occasional pause to make catchable
+    // Initialize
+    if (!ai.hiderInit) {
+        ai.hiderInit = true;
+        ai.hiderLastX = state.opponent.x;
+        ai.hiderLastZ = state.opponent.z;
+        ai.hiderStuckFrames = 0;
     }
 
-    // Check if hider is stuck
-    const movedDist = Math.sqrt(
-        Math.pow(state.opponent.x - ai.hiderLastPosition.x, 2) +
-        Math.pow(state.opponent.z - ai.hiderLastPosition.z, 2)
-    );
+    const aiX = state.opponent.x;
+    const aiZ = state.opponent.z;
+    const playerX = state.player.x;
+    const playerZ = state.player.z;
+    const speed = CONFIG.HIDER_SPEED;
 
+    // Check if stuck
+    const movedDist = Math.sqrt(Math.pow(aiX - ai.hiderLastX, 2) + Math.pow(aiZ - ai.hiderLastZ, 2));
     if (movedDist < 0.5) {
-        ai.hiderStuckTimer += deltaTime;
+        ai.hiderStuckFrames++;
     } else {
-        ai.hiderStuckTimer = 0;
-        ai.hiderLastPosition = { x: state.opponent.x, z: state.opponent.z };
+        ai.hiderStuckFrames = 0;
+    }
+    ai.hiderLastX = aiX;
+    ai.hiderLastZ = aiZ;
+
+    // If stuck for 60+ frames, teleport to safe spot
+    if (ai.hiderStuckFrames > 60) {
+        // Find a safe spot away from walls
+        for (let attempt = 0; attempt < 20; attempt++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 80 + Math.random() * 120;
+            const testX = Math.cos(angle) * dist;
+            const testZ = Math.sin(angle) * dist;
+
+            // Check if in arena and not in wall
+            if (Math.sqrt(testX*testX + testZ*testZ) < CONFIG.ARENA_RADIUS - 40) {
+                let inWall = false;
+                for (const wall of (currentBoard?.walls || [])) {
+                    if (testX > wall.x - 20 && testX < wall.x + wall.w + 20 &&
+                        testZ > wall.z - 20 && testZ < wall.z + wall.d + 20) {
+                        inWall = true;
+                        break;
+                    }
+                }
+                if (!inWall) {
+                    state.opponent.x = testX;
+                    state.opponent.z = testZ;
+                    ai.hiderStuckFrames = 0;
+                    return;
+                }
+            }
+        }
     }
 
-    // If stuck, escape in random direction
-    if (ai.hiderStuckTimer > 400) {
-        ai.hiderUnstuckAngle = Math.random() * Math.PI * 2;
-        ai.hiderUnstuckTime = 600;
-        ai.hiderStuckTimer = 0;
+    // Calculate away direction
+    const awayAngle = Math.atan2(aiZ - playerZ, aiX - playerX);
+
+    // Try multiple directions, pick best one that doesn't hit walls
+    const testDirections = [
+        awayAngle,           // Directly away
+        awayAngle + 0.4,     // Slightly left
+        awayAngle - 0.4,     // Slightly right
+        awayAngle + 0.8,     // More left
+        awayAngle - 0.8,     // More right
+        awayAngle + 1.2,     // Even more left
+        awayAngle - 1.2,     // Even more right
+        awayAngle + Math.PI/2,  // Perpendicular left
+        awayAngle - Math.PI/2   // Perpendicular right
+    ];
+
+    let bestX = aiX;
+    let bestZ = aiZ;
+    let foundMove = false;
+
+    for (const angle of testDirections) {
+        const testX = aiX + Math.cos(angle) * speed;
+        const testZ = aiZ + Math.sin(angle) * speed;
+
+        // Check arena bounds
+        if (Math.sqrt(testX*testX + testZ*testZ) > CONFIG.ARENA_RADIUS - 25) continue;
+
+        // Check wall collision
+        let blocked = false;
+        for (const wall of (currentBoard?.walls || [])) {
+            const pad = CONFIG.PLAYER_RADIUS + 2;
+            if (testX > wall.x - pad && testX < wall.x + wall.w + pad &&
+                testZ > wall.z - pad && testZ < wall.z + wall.d + pad) {
+                blocked = true;
+                break;
+            }
+        }
+
+        if (!blocked) {
+            bestX = testX;
+            bestZ = testZ;
+            foundMove = true;
+            break; // Take first valid direction (prefer away from seeker)
+        }
     }
 
-    // Unstuck mode
-    if (ai.hiderUnstuckTime > 0) {
-        ai.hiderUnstuckTime -= deltaTime;
-        ai.targetX = state.opponent.x + Math.cos(ai.hiderUnstuckAngle) * 15;
-        ai.targetZ = state.opponent.z + Math.sin(ai.hiderUnstuckAngle) * 15;
-        moveAIToward(ai.targetX, ai.targetZ, CONFIG.HIDER_SPEED * 0.75, deltaTime);
-        return;
+    // Apply movement
+    if (foundMove) {
+        state.opponent.x = bestX;
+        state.opponent.z = bestZ;
+        // Update angle based on actual movement
+        const movedX = bestX - aiX;
+        const movedZ = bestZ - aiZ;
+        state.opponent.angle = Math.atan2(-movedX, -movedZ);
     }
-
-    // Occasional pause to make the hider catchable (small chance to pause for 500-1000ms)
-    if (ai.pauseTimer > 0) {
-        ai.pauseTimer -= deltaTime;
-        return; // Don't move during pause
-    }
-    if (Math.random() < 0.003) { // Small chance to pause
-        ai.pauseTimer = 500 + Math.random() * 500;
-        return;
-    }
-
-    // ALWAYS flee from the seeker
-    ai.state = 'flee';
-
-    const distToSeeker = Math.sqrt(
-        Math.pow(state.opponent.x - state.player.x, 2) +
-        Math.pow(state.opponent.z - state.player.z, 2)
-    );
-
-    // Calculate flee direction (away from seeker)
-    let fleeAngle = Math.atan2(
-        state.opponent.z - state.player.z,
-        state.opponent.x - state.player.x
-    );
-
-    // Add randomness to flee direction (makes it less perfect, easier to catch)
-    // More random when seeker is far, more direct when close
-    const randomness = distToSeeker > 25 ? 0.8 : 0.3;
-    fleeAngle += (Math.random() - 0.5) * randomness;
-
-    // Set target position away from seeker
-    const fleeDist = 20 + Math.random() * 10;
-    ai.targetX = state.opponent.x + Math.cos(fleeAngle) * fleeDist;
-    ai.targetZ = state.opponent.z + Math.sin(fleeAngle) * fleeDist;
-
-    // Keep within arena bounds
-    const targetDist = Math.sqrt(ai.targetX * ai.targetX + ai.targetZ * ai.targetZ);
-    if (targetDist > CONFIG.ARENA_RADIUS - 10) {
-        // If hitting arena edge, run along the edge instead
-        const edgeAngle = Math.atan2(ai.targetZ, ai.targetX);
-        const tangentAngle = edgeAngle + (Math.random() > 0.5 ? Math.PI/2 : -Math.PI/2);
-        ai.targetX = state.opponent.x + Math.cos(tangentAngle) * fleeDist;
-        ai.targetZ = state.opponent.z + Math.sin(tangentAngle) * fleeDist;
-    }
-
-    // Move toward target - noticeably slower than seeker so player can catch up
-    moveAIToward(ai.targetX, ai.targetZ, CONFIG.HIDER_SPEED * 0.75, deltaTime);
 }
 
 function canAISeePoint(px, pz) {
@@ -9424,8 +9443,11 @@ function isWallBetween(x1, z1, x2, z2) {
 }
 
 function moveAIToward(targetX, targetZ, speed, deltaTime) {
-    const dx = targetX - state.opponent.x;
-    const dz = targetZ - state.opponent.z;
+    const oldX = state.opponent.x;
+    const oldZ = state.opponent.z;
+
+    const dx = targetX - oldX;
+    const dz = targetZ - oldZ;
     const dist = Math.sqrt(dx * dx + dz * dz);
 
     if (dist < 1) return; // Close enough
@@ -9434,12 +9456,9 @@ function moveAIToward(targetX, targetZ, speed, deltaTime) {
     const dirX = dx / dist;
     const dirZ = dz / dist;
 
-    // Update angle to face movement direction - negate to match convention
-    state.opponent.angle = Math.atan2(-dirX, -dirZ);
-
     // Move
-    let newX = state.opponent.x + dirX * speed;
-    let newZ = state.opponent.z + dirZ * speed;
+    let newX = oldX + dirX * speed;
+    let newZ = oldZ + dirZ * speed;
 
     // Arena bounds
     const distFromCenter = Math.sqrt(newX * newX + newZ * newZ);
@@ -9464,6 +9483,17 @@ function moveAIToward(targetX, targetZ, speed, deltaTime) {
 
     // Safety check - push AI out if stuck
     pushAIOutOfWalls();
+
+    // Only update angle if we actually moved (prevents spinning when stuck)
+    const actuallyMoved = Math.sqrt(
+        Math.pow(state.opponent.x - oldX, 2) +
+        Math.pow(state.opponent.z - oldZ, 2)
+    );
+    if (actuallyMoved > 0.1) {
+        const moveAngleX = state.opponent.x - oldX;
+        const moveAngleZ = state.opponent.z - oldZ;
+        state.opponent.angle = Math.atan2(-moveAngleX, -moveAngleZ);
+    }
 }
 
 function checkAIWallCollision(x, z) {
